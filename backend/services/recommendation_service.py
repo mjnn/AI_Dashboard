@@ -13,13 +13,13 @@ from services.data_profiler import build_data_profile
 from services.llm_planner import (
     AnalysisPlanError,
     DEEPSEEK_BASE_URL,
-    DEEPSEEK_MODEL,
     LLMApiError,
     MissingApiKeyError,
     REQUEST_TIMEOUT_SECONDS,
     _create_client,
     _parse_llm_json,
 )
+from services.llm_settings import get_deepseek_model
 
 RecommendationMode = Literal["auto", "precise", "exploratory"]
 
@@ -161,7 +161,7 @@ def generate_recommendations() -> RecommendationsResponse:
 
     try:
         response = client.chat.completions.create(
-            model=DEEPSEEK_MODEL,
+            model=get_deepseek_model(),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": "请根据数据画像生成分析推荐。"},

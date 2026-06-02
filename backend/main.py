@@ -34,6 +34,8 @@ from schemas.analysis import (
     DictionaryTestResponse,
     DictionaryTreeResponse,
     EventsListResponse,
+    LlmSettingsResponse,
+    LlmSettingsUpdate,
     RecommendationsResponse,
 )
 from services.analysis_registry import ANALYSIS_CATALOG, CHART_TYPE_CATALOG
@@ -74,7 +76,17 @@ from services.dict_storage import (
     update_event_raw,
 )
 from services.dict_tester import test_event_against_pool
+from services.llm_settings import (
+    get_deepseek_model,
+    list_deepseek_model_options,
+    set_deepseek_model,
+)
 from services.metadata_resolver import MetadataResolverError, resolve
+from services.multi_event_analysis import run_comprehensive_analysis
+from services.event_cluster_discovery import (
+    build_discovery_from_scope,
+    discover_event_clusters,
+)
 
 logger = logging.getLogger(__name__)
 events_index: dict[str, Any] = {}
@@ -140,6 +152,7 @@ def health():
         "events_loaded": bool(events_index.get("event_names")),
         "event_count": len(events_index.get("event_names", [])),
         "api_key_configured": bool(get_deepseek_api_key()),
+        "llm_model": get_deepseek_model(),
         "csv_data_dir": str(csv_dir) if csv_dir else None,
         "csv_file_count": csv_file_count,
         "data_pool_ready": data_pool_ready,
@@ -253,6 +266,27 @@ def test_dictionary_event(body: DictionaryTestRequest):
     return DictionaryTestResponse(**result)
 
 
+@app.get("/api/settings/llm", response_model=LlmSettingsResponse)
+def get_llm_settings():
+    return LlmSettingsResponse(
+        model=get_deepseek_model(),
+        available_models=list_deepseek_model_options(),
+    )
+
+
+@app.put("/api/settings/llm", response_model=LlmSettingsResponse)
+def update_llm_settings(body: LlmSettingsUpdate):
+    try:
+        set_deepseek_model(body.model)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    clear_recommendations_cache()
+    return LlmSettingsResponse(
+        model=get_deepseek_model(),
+        available_models=list_deepseek_model_options(),
+    )
+
+
 @app.get("/api/recommendations", response_model=RecommendationsResponse)
 def get_recommendations():
     try:
@@ -362,6 +396,19 @@ def analyze(request: AnalyzeRequest):
         return _error_response(422, str(exc))
 
     event_def = resolution["event_def"]
+    use_comprehensive = request.analysis_mode != "precise"
+    cluster_discovery = None
+    if use_comprehensive:
+        try:
+            cluster_discovery = discover_event_clusters(
+                request.query,
+                csv_event_names,
+                events_index,
+                seed_plan=plan,
+            )
+        except (MissingApiKeyError, LLMApiError) as exc:
+            logger.warning("Event cluster discovery failed: %s", exc)
+
     event_filter_override, _filter_source = resolve_event_filter(
         csv_event_filter=plan.csv_event_filter,
         matched_event=plan.matched_event,
@@ -369,6 +416,8 @@ def analyze(request: AnalyzeRequest):
         events_index=events_index,
         csv_event_names=csv_event_names,
         query=request.query,
+        comprehensive=use_comprehensive,
+        cluster_discovery=cluster_discovery,
     )
     if event_filter_override:
         event_filter_override = set(event_filter_override)
@@ -377,6 +426,33 @@ def analyze(request: AnalyzeRequest):
 
     try:
         user_mode = request.analysis_mode
+
+        if (
+            use_comprehensive
+            and event_filter_override
+            and len(event_filter_override) >= 2
+        ):
+            if cluster_discovery is None:
+                cluster_discovery = build_discovery_from_scope(
+                    request.query,
+                    event_filter_override,
+                    events_index,
+                    csv_event_names,
+                    seed_plan=plan,
+                )
+            return run_comprehensive_analysis(
+                plan,
+                event_def,
+                df,
+                columns,
+                query=request.query,
+                user_mode=user_mode,
+                events_index=events_index,
+                csv_event_names=csv_event_names,
+                event_filter_override=event_filter_override,
+                cluster_discovery=cluster_discovery,
+            )
+
         if should_run_exploratory(plan, request.query, user_mode=user_mode):
             feasible = detect_feasible_analysis_types(columns)
             if len(feasible) >= 2:
@@ -394,6 +470,7 @@ def analyze(request: AnalyzeRequest):
                     reason=reason,
                     query=request.query,
                     event_filter_override=event_filter_override,
+                    events_index=events_index,
                 )
 
         return _run_single_analysis(

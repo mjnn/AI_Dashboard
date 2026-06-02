@@ -22,7 +22,7 @@ from services.llm_planner import (
     _create_client,
     _parse_llm_json,
 )
-from services.llm_planner import DEEPSEEK_MODEL
+from services.llm_settings import get_deepseek_model
 
 SectionLayout = Literal["kpi_grid", "wide_grid", "half_grid", "compact_grid", "single"]
 
@@ -118,19 +118,39 @@ def _build_narrator_prompt(
     panels: List[AnalysisPanel],
     plan: AnalysisPlan,
     query: str,
+    *,
+    scope_event_count: int = 1,
+    depth_insights: Optional[List[str]] = None,
+    analysis_angles: Optional[List[str]] = None,
 ) -> str:
     import json
 
     panel_briefs = [_summarize_panel(p) for p in panels]
     panel_json = json.dumps(panel_briefs, ensure_ascii=False, indent=2)
+    scope_line = plan.scope_label or plan.matched_event
+    if scope_event_count > 1:
+        scope_line = f"{scope_line}（综合 {scope_event_count} 个相关事件）"
+
+    angles_block = ""
+    if analysis_angles:
+        angles_block = "\n## 建议深挖角度\n" + "\n".join(
+            f"- {a}" for a in analysis_angles[:6]
+        )
+    insights_block = ""
+    if depth_insights:
+        insights_block = "\n## 场景深度洞察（请融入 summary 与 highlight）\n" + "\n".join(
+            f"- {i}" for i in depth_insights[:6]
+        )
 
     return f"""你是一位座舱埋点数据的「故事讲述者」。请根据下方真实分析结果，为看板生成分类结构与生动文案。
 
 ## 用户问题
 {query}
 
-## 分析事件
-{plan.matched_event}（{plan.matched_module}）
+## 分析范围
+{scope_line}（{plan.matched_module}）
+{angles_block}
+{insights_block}
 
 ## 图表面板（含真实数据摘要）
 {panel_json}
@@ -339,8 +359,11 @@ def _fallback_presentation(
         )
 
     return DashboardPresentation(
-        headline=f"{plan.matched_event} 数据洞察",
-        summary=f"基于 {plan.matched_event} 的 {len(panels)} 项分析，帮你从指标、趋势到行为层层拆开。",
+        headline=f"{plan.scope_label or plan.matched_event} 数据洞察",
+        summary=(
+            f"基于 {plan.scope_label or plan.matched_event} 共 {len(panels)} 项分析，"
+            "从多事件对比、趋势到行为分布层层拆开。"
+        ),
         sections=sections,
         panels=narrations,
     )
@@ -378,11 +401,15 @@ def generate_dashboard_presentation(
     panels: List[AnalysisPanel],
     plan: AnalysisPlan,
     query: str,
+    *,
+    scope_event_count: int = 1,
+    depth_insights: Optional[List[str]] = None,
+    analysis_angles: Optional[List[str]] = None,
 ) -> DashboardPresentation:
     """调用 LLM 生成看板分类与生动文案；失败时回退规则兜底。"""
     if not panels:
         return DashboardPresentation(
-            headline=f"{plan.matched_event} 分析",
+            headline=f"{plan.scope_label or plan.matched_event} 分析",
             summary=plan.statistical_caliber.description,
             sections=[],
             panels=[],
@@ -395,11 +422,18 @@ def generate_dashboard_presentation(
     except MissingApiKeyError:
         return _fallback_presentation(panels, plan)
 
-    system_prompt = _build_narrator_prompt(panels, plan, query)
+    system_prompt = _build_narrator_prompt(
+        panels,
+        plan,
+        query,
+        scope_event_count=scope_event_count,
+        depth_insights=depth_insights,
+        analysis_angles=analysis_angles,
+    )
 
     try:
         response = client.chat.completions.create(
-            model=DEEPSEEK_MODEL,
+            model=get_deepseek_model(),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": "请生成看板分类与生动文案。"},

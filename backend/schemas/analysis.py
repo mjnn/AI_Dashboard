@@ -147,6 +147,10 @@ class AnalysisPlan(BaseModel):
         default=None,
         description="LLM 对字典事件名与 CSV event 取值的映射说明（可选）",
     )
+    scope_label: Optional[str] = Field(
+        default=None,
+        description="多事件分析范围展示名（后端填充）",
+    )
 
 
 class AnalyzeRequest(BaseModel):
@@ -239,9 +243,9 @@ class DashboardPresentation(BaseModel):
 class AnalysisResponse(BaseModel):
     """分析 API 响应。"""
 
-    mode: Literal["single", "exploratory"] = Field(
+    mode: Literal["single", "exploratory", "comprehensive"] = Field(
         default="single",
-        description="single 单图分析 / exploratory 探索性多面板",
+        description="single 单图 / exploratory 探索多面板 / comprehensive 多事件综合",
     )
     plan: AnalysisPlan = Field(description="LLM 原始分析计划（可审计）")
     execution: ExecutionSummary = Field(description="数据处理执行摘要")
@@ -258,6 +262,18 @@ class AnalysisResponse(BaseModel):
     presentation: Optional[DashboardPresentation] = Field(
         default=None,
         description="LLM 生成的看板分类与生动文案",
+    )
+    scope_events: Optional[List[str]] = Field(
+        default=None,
+        description="本次分析纳入的 CSV event 取值列表（多事件综合）",
+    )
+    analysis_clusters: Optional[List[dict]] = Field(
+        default=None,
+        description="LLM 事件聚类综合分析项",
+    )
+    depth_insights: Optional[List[str]] = Field(
+        default=None,
+        description="LLM 场景深度挖掘建议",
     )
 
 
@@ -428,3 +444,24 @@ class AnalysisTypesResponse(BaseModel):
     types: List[dict] = Field(description="分析类型目录")
     total: int = Field(description="分析类型总数")
     chart_types: List[dict] = Field(description="全局图表类型目录")
+
+
+class DeepSeekModelOption(BaseModel):
+    """可选 DeepSeek 模型。"""
+
+    id: str
+    label: str
+    selected: bool = False
+
+
+class LlmSettingsResponse(BaseModel):
+    """LLM 模型设置。"""
+
+    model: str
+    available_models: List[DeepSeekModelOption]
+
+
+class LlmSettingsUpdate(BaseModel):
+    """更新 LLM 模型。"""
+
+    model: str = Field(min_length=1, description="deepseek-v4-flash 或 deepseek-v4-pro")

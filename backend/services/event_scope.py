@@ -120,3 +120,152 @@ def fallback_matched_event(
         ).event_name
     except Exception:
         return None
+
+
+def csv_labels_for_module(
+    module_name: str,
+    events_index: dict,
+    csv_event_names: List[str],
+) -> Set[str]:
+    """字典模块下、数据池中实际存在埋点的 CSV event 取值。"""
+    if not module_name:
+        return set()
+    from services.field_resolver import _csv_labels_for_event
+
+    labels: Set[str] = set()
+    for canonical, definition in events_index.get("events", {}).items():
+        if definition.get("module") != module_name:
+            continue
+        labels.update(_csv_labels_for_event(events_index, canonical, csv_event_names))
+    return labels
+
+
+def canonical_events_for_module(
+    module_name: str,
+    events_index: dict,
+    csv_event_names: List[str],
+) -> List[str]:
+    """模块内在数据池有数据的字典事件（按字典顺序）。"""
+    if not module_name:
+        return []
+    from services.field_resolver import _csv_labels_for_event
+
+    ordered: List[str] = []
+    for module in events_index.get("modules", []):
+        if module.get("name") != module_name:
+            continue
+        for canonical in module.get("events", []):
+            if _csv_labels_for_event(events_index, canonical, csv_event_names):
+                ordered.append(canonical)
+        return ordered
+
+    for canonical, definition in events_index.get("events", {}).items():
+        if definition.get("module") == module_name and _csv_labels_for_event(
+            events_index, canonical, csv_event_names
+        ):
+            ordered.append(canonical)
+    return sorted(dict.fromkeys(ordered))
+
+
+def infer_prefix_group_from_anchor(
+    matched_event: str,
+    events_index: dict,
+    csv_event_names: List[str],
+) -> Set[str]:
+    """从锚点事件推断同前缀的一组 CSV event（如 carlog_*）。"""
+    from services.event_mapping import infer_csv_filter_for_canonical
+
+    anchor_labels = infer_csv_filter_for_canonical(
+        matched_event, events_index, csv_event_names
+    )
+    if not anchor_labels:
+        return set()
+
+    primary = _pick_primary_csv_label(set(anchor_labels))
+    prefix = primary.lower().split("_", 1)[0]
+    if not prefix:
+        return set(anchor_labels)
+
+    group = {
+        str(name)
+        for name in csv_event_names
+        if str(name).lower() == prefix or str(name).lower().startswith(f"{prefix}_")
+    }
+    return group if len(group) >= 2 else set(anchor_labels)
+
+
+def expand_comprehensive_event_scope(
+    *,
+    matched_event: str,
+    matched_module: str | None,
+    csv_event_filter: List[str] | None,
+    query: str,
+    events_index: dict,
+    csv_event_names: List[str],
+    max_module_events: int = 20,
+) -> tuple[Set[str], List[str]]:
+    """
+    扩展分析范围为全部相关事件。
+    返回 (CSV 过滤集合, 有序字典 canonical 列表)。
+    """
+    from services.event_mapping import sanitize_csv_event_filter
+
+    scope: Set[str] = set()
+    if csv_event_filter:
+        scope.update(sanitize_csv_event_filter(csv_event_filter, csv_event_names))
+
+    module = matched_module or events_index.get("events", {}).get(matched_event, {}).get(
+        "module", ""
+    )
+
+    scope.update(infer_prefix_group_from_anchor(matched_event, events_index, csv_event_names))
+
+    related = infer_related_csv_events(query or matched_event, csv_event_names)
+    if related:
+        scope.update(related)
+
+    if module:
+        module_labels = csv_labels_for_module(module, events_index, csv_event_names)
+        if 2 <= len(module_labels) <= max_module_events:
+            scope.update(module_labels)
+
+    if not scope:
+        from services.event_mapping import infer_csv_filter_for_canonical
+
+        scope.update(
+            infer_csv_filter_for_canonical(matched_event, events_index, csv_event_names)
+        )
+
+    canonicals: List[str] = []
+    if module:
+        from services.field_resolver import _csv_labels_for_event
+
+        for canonical in canonical_events_for_module(
+            module, events_index, csv_event_names
+        ):
+            labels = set(_csv_labels_for_event(events_index, canonical, csv_event_names))
+            if labels & scope:
+                canonicals.append(canonical)
+
+    if len(canonicals) < 2:
+        from services.field_resolver import _lookup_in_index
+
+        for label in sorted(scope):
+            canonical = _lookup_in_index(events_index, label)
+            if canonical and canonical not in canonicals:
+                canonicals.append(canonical)
+            elif not canonical and label not in canonicals:
+                canonicals.append(label)
+
+    return scope, canonicals
+
+
+def scope_display_label(
+    matched_event: str,
+    matched_module: str | None,
+    scope_size: int,
+) -> str:
+    """多事件范围的人类可读标签。"""
+    if scope_size <= 1:
+        return matched_event
+    return f"{matched_event} 等 {scope_size} 个相关事件"

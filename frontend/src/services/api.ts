@@ -9,6 +9,8 @@ import type {
   DictionaryTestResponse,
   DictionaryTreeResponse,
   EventsListResponse,
+  LlmSettingsResponse,
+  LlmSettingsUpdate,
   RecommendationsResponse,
 } from "../types";
 
@@ -196,6 +198,16 @@ export const api = {
         event_name: eventName,
         csv_labels: csvLabels,
       }),
+      signal,
+    }),
+
+  getLlmSettings: (signal?: AbortSignal) =>
+    request<LlmSettingsResponse>("/api/settings/llm", { signal }),
+
+  updateLlmSettings: (body: LlmSettingsUpdate, signal?: AbortSignal) =>
+    request<LlmSettingsResponse>("/api/settings/llm", {
+      method: "PUT",
+      body: JSON.stringify(body),
       signal,
     }),
 };

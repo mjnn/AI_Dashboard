@@ -139,6 +139,72 @@ class TestEventMapping(unittest.TestCase):
         self.assertGreaterEqual(len(data["csv_event_filter"]), 3)
 
 
+class TestEventClusterRepair(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.index = DictPreprocessor(EVENTS_DICT_PATH).index
+        cls.csv_events = list_distinct_csv_events(load_data_pool())
+
+    def test_repair_carlog_cluster(self):
+        from services.event_cluster_discovery import repair_cluster_discovery
+
+        discovery = repair_cluster_discovery(
+            {
+                "primary_cluster_id": "carlog_flow",
+                "clusters": [
+                    {
+                        "id": "carlog_flow",
+                        "name": "Carlog 使用链路",
+                        "rationale": "进入退出等同属 Carlog 旅程",
+                        "csv_events": [
+                            "carlog_entry",
+                            "carlog_exit",
+                            "carlog_fake",
+                        ],
+                        "analysis_angles": ["对比 UV"],
+                    }
+                ],
+            },
+            self.csv_events,
+            self.index,
+            query="分析carlog",
+        )
+        self.assertEqual(discovery.primary_cluster_id, "carlog_flow")
+        self.assertGreaterEqual(len(discovery.clusters[0].csv_events), 2)
+        self.assertNotIn("carlog_fake", discovery.clusters[0].csv_events)
+
+    def test_resolve_with_mock_discovery(self):
+        from services.event_cluster_discovery import repair_cluster_discovery, get_primary_cluster, scope_from_cluster
+
+        discovery = repair_cluster_discovery(
+            {
+                "primary_cluster_id": "c1",
+                "clusters": [
+                    {
+                        "id": "c1",
+                        "name": "测试聚类",
+                        "rationale": "test",
+                        "csv_events": ["carlog_entry", "carlog_exit"],
+                    }
+                ],
+            },
+            self.csv_events,
+            self.index,
+        )
+        filt, source = resolve_event_filter(
+            csv_event_filter=None,
+            matched_event="Carlog_进入",
+            comparison_events=None,
+            events_index=self.index,
+            csv_event_names=self.csv_events,
+            query="分析carlog",
+            comprehensive=True,
+            cluster_discovery=discovery,
+        )
+        self.assertEqual(source, "llm_cluster")
+        self.assertEqual(filt, scope_from_cluster(get_primary_cluster(discovery)))
+
+
 class TestProcessCsv(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -189,6 +255,49 @@ class TestProcessCsv(unittest.TestCase):
         self.assertEqual(execution.status, "success")
         self.assertGreater(execution.filtered_rows, 0)
         self.assertFalse(result.empty)
+
+    def test_event_comparison_multi_scope(self):
+        from schemas.analysis import (
+            AnalysisPlan,
+            MetricDef,
+            StatisticalCaliber,
+            TimeRange,
+            VisualizationDef,
+        )
+        from services.analysis_registry import EVENT_NAME_DIMENSION
+
+        scope = infer_related_csv_events("carlog", self.csv_events)
+        self.assertIsNotNone(scope)
+        plan = AnalysisPlan(
+            analysis_type="event_comparison",
+            matched_event="Carlog_进入",
+            matched_module="Carlog",
+            match_confidence="high",
+            metrics=[
+                MetricDef(id="pv", name="PV", type="count"),
+                MetricDef(id="uv", name="UV", type="nunique", field="vin_code"),
+            ],
+            visualization=VisualizationDef(
+                chart_type="bar", layout="single", reasoning="test"
+            ),
+            dimension=EVENT_NAME_DIMENSION,
+            filters={},
+            time_range=TimeRange(type="last_n_days", value=30),
+            statistical_caliber=StatisticalCaliber(
+                dedup_method="none",
+                time_granularity="daily",
+                description="test",
+            ),
+        )
+        result, execution = process_csv(
+            plan,
+            self.event_def,
+            df=self.df,
+            event_filter_override=scope,
+            events_index=self.index,
+        )
+        self.assertEqual(execution.status, "success")
+        self.assertGreaterEqual(len(result), 2)
 
     def test_usage_distribution_bucket_numeric_order(self):
         from schemas.analysis import (
@@ -313,6 +422,25 @@ class TestApiNoLlm(unittest.TestCase):
         data = r.json()
         self.assertGreaterEqual(data["total"], 1)
         self.assertTrue(any(f["filename"].endswith(".csv") for f in data["files"]))
+
+    def test_llm_settings_default(self):
+        r = self.client.get("/api/settings/llm")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIn(data["model"], ("deepseek-v4-flash", "deepseek-v4-pro"))
+        self.assertEqual(len(data["available_models"]), 2)
+
+    def test_llm_settings_update(self):
+        r = self.client.put("/api/settings/llm", json={"model": "deepseek-v4-pro"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["model"], "deepseek-v4-pro")
+        r2 = self.client.put("/api/settings/llm", json={"model": "deepseek-v4-flash"})
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(r2.json()["model"], "deepseek-v4-flash")
+
+    def test_llm_settings_invalid(self):
+        r = self.client.put("/api/settings/llm", json={"model": "gpt-4"})
+        self.assertEqual(r.status_code, 422)
 
     def test_upload_csv(self):
         content = b"vin_code,date,event\nV001,2026-01-01,test_event\n"

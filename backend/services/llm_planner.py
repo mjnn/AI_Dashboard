@@ -19,8 +19,9 @@ from services.analysis_registry import (
 from services.event_mapping import build_dict_csv_mapping_hint, repair_plan_event_adaptation
 from services.field_resolver import resolve_event
 
+from services.llm_settings import get_deepseek_model
+
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
-DEEPSEEK_MODEL = "deepseek-v4-flash"
 REQUEST_TIMEOUT_SECONDS = 10.0
 
 _JSON_BLOCK_PATTERN = re.compile(
@@ -109,7 +110,8 @@ def _build_csv_events_hint(
         "- matched_event：字典 canonical 名（展示/口径用）\n"
         "- csv_event_filter：本次分析在 CSV 中实际过滤的 event 取值列表（必填，可多值）\n"
         "- event_mapping_note：一句话说明为何这样映射（可选）\n"
-        "模块级问题（如「分析 carlog」）应把该模块相关的全部 CSV event 写入 csv_event_filter。\n"
+        "模块级问题（如「分析 carlog」）应把语义相关的 CSV event 写入 csv_event_filter（由后续聚类进一步修正）。\n"
+        "用户关注某一功能/场景时，纳入该场景下多个步骤事件，勿仅选单点；**不要**因字典模块相同就合并无关事件。\n"
         "单事件问题只写对应的一个或多个 CSV 取值。csv_event_filter 只能来自上方数据池列表，不要编造。\n"
         "dimension / metrics.field 必须来自 CSV 列名或字典属性，不要编造字段。"
     )
@@ -149,8 +151,8 @@ def _build_system_prompt(
 - period_unit: period_pattern 时 hour 或 weekday
 - intent_confidence: high/medium/low（分析意图是否明确；笼统问题如「分析一下」设为 low）
 - exploratory_mode: true/false（用户明确要求「全面/整体/综合」分析时为 true）
-- matched_event: 你认为用户想分析哪个事件（字典名，必须从可用事件列表选择）
-- csv_event_filter: 数据池 CSV event 列实际过滤取值（字符串数组，必填）
+- matched_event: 你认为用户想分析哪个事件（字典名，必须从可用事件列表选择；多事件综合时选模块代表事件）
+- csv_event_filter: 数据池 CSV event 列实际过滤取值（字符串数组，必填；相关事件应全部列入）
 - event_mapping_note: 字典名与 CSV 取值的映射说明（可选）
 - match_confidence: high/medium/low
 - matched_module: 该事件所属模块
@@ -369,7 +371,7 @@ def generate_plan(
 
     try:
         response = client.chat.completions.create(
-            model=DEEPSEEK_MODEL,
+            model=get_deepseek_model(),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": query},

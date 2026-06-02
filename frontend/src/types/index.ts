@@ -133,6 +133,10 @@ export interface AnalysisPlan {
   intent_confidence?: MatchConfidence;
   /** 强制探索性全量分析 */
   exploratory_mode?: boolean;
+  /** 数据池 CSV event 过滤范围 */
+  csv_event_filter?: string[];
+  /** 多事件分析范围展示名 */
+  scope_label?: string;
 }
 
 /** 用户选择的分析模式（请求参数） */
@@ -184,7 +188,7 @@ export interface DashboardPresentation {
 }
 
 /** 响应模式 */
-export type AnalysisMode = "single" | "exploratory";
+export type AnalysisMode = "single" | "exploratory" | "comprehensive";
 
 /** 探索性分析面板 */
 export interface AnalysisPanel {
@@ -254,6 +258,21 @@ export interface AnalysisResponse {
   panel_count?: number;
   /** LLM 看板分类与生动文案 */
   presentation?: DashboardPresentation;
+  /** 本次纳入的 CSV event 列表（多事件综合） */
+  scope_events?: string[];
+  /** LLM 事件聚类项 */
+  analysis_clusters?: AnalysisClusterSummary[];
+  /** 场景深度挖掘建议 */
+  depth_insights?: string[];
+}
+
+export interface AnalysisClusterSummary {
+  id: string;
+  name: string;
+  rationale: string;
+  csv_events: string[];
+  analysis_angles: string[];
+  is_primary: boolean;
 }
 
 /** 模块事件分组 */
@@ -412,4 +431,21 @@ export interface DictionaryTestResponse {
   distinct_csv_events: number;
   sample_rows: Record<string, unknown>[];
   suggested_csv_labels: string[];
+}
+
+export type DeepSeekModelId = "deepseek-v4-flash" | "deepseek-v4-pro";
+
+export interface DeepSeekModelOption {
+  id: DeepSeekModelId;
+  label: string;
+  selected: boolean;
+}
+
+export interface LlmSettingsResponse {
+  model: DeepSeekModelId;
+  available_models: DeepSeekModelOption[];
+}
+
+export interface LlmSettingsUpdate {
+  model: DeepSeekModelId;
 }

@@ -17,9 +17,12 @@ export default function App() {
   const handlePoolChange = useCallback(() => {
     setPoolVersion((v) => v + 1);
   }, []);
-  const isExploratory = result?.mode === "exploratory";
+  const isExploratory =
+    result?.mode === "exploratory" || result?.mode === "comprehensive";
   const headline = result?.presentation?.headline ?? "AI 座舱埋点看板";
-  const eventName = result?.plan.matched_event;
+  const eventName = result?.plan.scope_label ?? result?.plan.matched_event;
+  const scopeCount = result?.scope_events?.length ?? result?.plan.csv_event_filter?.length;
+  const primaryCluster = result?.analysis_clusters?.find((c) => c.is_primary);
   const dashboardExportRef = useRef<HTMLDivElement>(null);
 
   if (view === "data-management") {
@@ -40,7 +43,13 @@ export default function App() {
             <h1 className="dash-title">{headline}</h1>
             {result && (
               <div className="dash-meta">
-                分析事件：<strong>{eventName}</strong>
+                分析范围：<strong>{primaryCluster?.name ?? eventName}</strong>
+                {scopeCount != null && scopeCount > 1 && (
+                  <>
+                    {" "}
+                    · <strong>{scopeCount}</strong> 个事件（LLM 语义聚类）
+                  </>
+                )}
                 {result.execution.total_rows > 0 && (
                   <>
                     {" "}

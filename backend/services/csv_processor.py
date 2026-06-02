@@ -462,6 +462,8 @@ def _event_match_values(plan: AnalysisPlan, event_def: Optional[dict]) -> set[st
 
 
 def _collect_event_filter_values(plan: AnalysisPlan, event_def: Optional[dict]) -> set[str]:
+    if plan.csv_event_filter:
+        return {str(v) for v in plan.csv_event_filter}
     if is_multi_event_analysis(plan.analysis_type or "") and plan.comparison_events:
         values: set[str] = set()
         for event_name in plan.comparison_events:
@@ -613,18 +615,34 @@ def _aggregate_funnel(
     event_col: str,
     vin_col: str,
     plan: AnalysisPlan,
+    *,
+    events_index: dict | None = None,
+    csv_event_names: List[str] | None = None,
 ) -> pd.DataFrame:
+    from services.event_mapping import resolve_event_csv_values
+
     steps = plan.comparison_events or [plan.matched_event]
     if len(steps) < 2:
         steps = [plan.matched_event, *(plan.comparison_events or [])]
 
+    pool_values = set(df[event_col].astype(str))
     metric_count = "user_count"
     metric_rate = "conversion_rate"
     rows: List[dict] = []
     prev_count = 0
 
     for idx, step in enumerate(steps):
-        step_values = _event_name_variants(step)
+        if events_index and csv_event_names:
+            step_values = resolve_event_csv_values(
+                str(step),
+                events_index,
+                csv_event_names,
+                pool_values=pool_values,
+            )
+        else:
+            step_values = _event_name_variants(step) & pool_values
+        if not step_values:
+            continue
         step_df = df[df[event_col].astype(str).isin(step_values)]
         count = step_df[vin_col].nunique()
         rate = 100.0 if idx == 0 else (round(count / prev_count * 100, 2) if prev_count else 0.0)
@@ -644,7 +662,6 @@ def _aggregate_event_comparison(
     time_col: Optional[str],
     plan: AnalysisPlan,
 ) -> pd.DataFrame:
-    events = plan.comparison_events or [plan.matched_event]
     working = df.copy()
     working[EVENT_NAME_DIMENSION] = working[event_col].astype(str)
 
@@ -653,15 +670,7 @@ def _aggregate_event_comparison(
         working[plan.dimension] = working["_parsed_time"].dt.date
         group_cols = [plan.dimension, plan.sub_dimension or EVENT_NAME_DIMENSION]
     else:
-        group_cols = [plan.dimension]
-
-    event_filter = set()
-    for ev in events:
-        event_filter.update(_event_name_variants(ev))
-    working = working[working[EVENT_NAME_DIMENSION].isin(event_filter)]
-
-    if plan.sub_dimension == EVENT_NAME_DIMENSION or EVENT_NAME_DIMENSION in group_cols:
-        working[EVENT_NAME_DIMENSION] = working[EVENT_NAME_DIMENSION]
+        group_cols = [EVENT_NAME_DIMENSION]
 
     return _aggregate(working, group_cols, plan.metrics)
 
@@ -836,6 +845,7 @@ def process_csv(
     *,
     df: pd.DataFrame | None = None,
     event_filter_override: Optional[set[str]] = None,
+    events_index: dict | None = None,
 ) -> Tuple[pd.DataFrame, ExecutionSummary]:
     """按分析计划过滤并聚合数据；未传 df 时从 csv_path 或数据池加载。"""
     start_ms = time.perf_counter()
@@ -998,7 +1008,14 @@ def process_csv(
                 pd.DataFrame(), start_ms=start_ms, unavailable=unavailable_dimensions,
                 total_rows=total_rows, filtered_rows=filtered_rows,
             )
-        result = _aggregate_funnel(filtered, event_col, vin_col, plan)
+        result = _aggregate_funnel(
+            filtered,
+            event_col,
+            vin_col,
+            plan,
+            events_index=events_index,
+            csv_event_names=sorted({str(v) for v in df[event_col].astype(str)}) if event_col else None,
+        )
 
     elif analysis_type == "event_comparison":
         result = _aggregate_event_comparison(filtered, event_col, time_col, plan)

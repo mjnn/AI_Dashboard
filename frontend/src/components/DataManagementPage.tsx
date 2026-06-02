@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import CsvDataPanel from "./CsvDataPanel";
 
 import DictionaryPanel from "./DictionaryPanel";
+import LlmModelSelector from "./LlmModelSelector";
 
 
 
@@ -123,6 +124,10 @@ export default function DataManagementPage({
           ))}
 
         </div>
+
+
+
+        <LlmModelSelector disabled={analysisBusy} />
 
 
 

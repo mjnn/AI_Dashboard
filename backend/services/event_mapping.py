@@ -97,11 +97,28 @@ def resolve_event_filter(
     events_index: dict,
     csv_event_names: List[str],
     query: str = "",
+    comprehensive: bool = True,
+    cluster_discovery: object | None = None,
 ) -> tuple[set[str], str]:
     """
     确定最终 CSV 过滤集合与来源。
-    优先级：LLM csv_event_filter > 字典反查 > 模块推断 > 单事件兜底。
+    综合模式优先使用 LLM 事件聚类；否则 LLM csv_event_filter > 规则兜底。
     """
+    if comprehensive and cluster_discovery is not None:
+        from services.event_cluster_discovery import (
+            EventClusterDiscovery,
+            get_primary_cluster,
+            scope_from_cluster,
+        )
+
+        if isinstance(cluster_discovery, EventClusterDiscovery):
+            cluster = get_primary_cluster(cluster_discovery)
+            scope = scope_from_cluster(cluster)
+            if len(scope) >= 2:
+                return scope, "llm_cluster"
+            if len(scope) == 1:
+                return scope, "llm_cluster_single"
+
     sanitized = sanitize_csv_event_filter(csv_event_filter or [], csv_event_names)
     if sanitized:
         return set(sanitized), "llm_csv_filter"
@@ -140,6 +157,27 @@ def resolve_event_filter(
     return set(), "empty"
 
 
+def resolve_event_csv_values(
+    event_ref: str,
+    events_index: dict,
+    csv_event_names: List[str],
+    *,
+    pool_values: set[str] | None = None,
+) -> set[str]:
+    """将字典事件名或 CSV 取值解析为数据池 event 列可匹配的值集合。"""
+    values: set[str] = {str(event_ref)}
+    normalized = str(event_ref).replace("_", "")
+    if normalized:
+        values.add(normalized)
+    values.update(infer_csv_filter_for_canonical(event_ref, events_index, csv_event_names))
+    pool = {str(v) for v in csv_event_names}
+    if str(event_ref) in pool:
+        values.add(str(event_ref))
+    if pool_values is not None:
+        values = {v for v in values if v in pool_values}
+    return values
+
+
 def repair_plan_event_adaptation(
     data: dict,
     events_index: dict,
@@ -150,7 +188,7 @@ def repair_plan_event_adaptation(
     LLM 计划入库前：保留 LLM 的 csv_event_filter，仅在缺失时用规则补全；
     matched_event 与 csv_event_filter 不一致时以 filter 主事件为准校正锚点。
     """
-    from services.event_scope import apply_module_anchor_event, module_primary_canonical
+    from services.event_scope import infer_related_csv_events, _pick_primary_csv_label
 
     updated = dict(data)
     llm_filter = sanitize_csv_event_filter(
@@ -181,16 +219,7 @@ def repair_plan_event_adaptation(
             if module:
                 updated["matched_module"] = module
     else:
-        module_canonical = module_primary_canonical(query, csv_event_names, events_index)
-        if module_canonical and match_confidence != "high":
-            updated["matched_event"] = module_canonical
-            module = events_index.get("events", {}).get(module_canonical, {}).get("module")
-            if module:
-                updated["matched_module"] = module
-            related = infer_related_csv_events(query, csv_event_names)
-            if related:
-                updated["csv_event_filter"] = sorted(related)
-        elif not llm_filter:
+        if not llm_filter:
             inferred = infer_csv_filter_for_canonical(
                 updated.get("matched_event", ""), events_index, csv_event_names
             )
@@ -204,12 +233,10 @@ def repair_plan_event_adaptation(
         else:
             updated["csv_event_filter"] = llm_filter
 
-        if not llm_provided_filter:
-            updated = apply_module_anchor_event(updated, query, csv_event_names, events_index)
-            if not updated.get("csv_event_filter"):
-                related = infer_related_csv_events(query, csv_event_names)
-                if related:
-                    updated["csv_event_filter"] = sorted(related)
+        if not llm_provided_filter and not updated.get("csv_event_filter"):
+            related = infer_related_csv_events(query, csv_event_names)
+            if related:
+                updated["csv_event_filter"] = sorted(related)
 
     if updated.get("comparison_events"):
         canonical_events: list[str] = []
