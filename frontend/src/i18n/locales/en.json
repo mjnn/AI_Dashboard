@@ -1,0 +1,123 @@
+{
+  "lang": {
+    "label": "Language",
+    "zh": "中文",
+    "en": "EN",
+    "de": "DE"
+  },
+  "app": {
+    "defaultTitle": "AI Cockpit Event Analytics",
+    "metaHint": "Describe your analysis in natural language to generate charts and insights",
+    "scopeLabel": "Scope",
+    "scopeEvents": "{{count}} events (LLM semantic clustering)",
+    "rowCount": "{{count}} rows",
+    "dataManagement": "Data management",
+    "newAnalysis": "New analysis",
+    "footer": "AI Cockpit Event Analytics · Data-driven operations insights"
+  },
+  "input": {
+    "placeholder": "e.g. Daily Bluetooth usage trend for the last 30 days",
+    "submit": "Analyze",
+    "submitting": "Analyzing...",
+    "modeGroup": "Analysis mode",
+    "modeAuto": "Smart",
+    "modeAutoHint": "Precise when intent is clear; exploratory when vague",
+    "modePrecise": "Precise",
+    "modePreciseHint": "Run only the single analysis chosen by the LLM",
+    "modeExploratory": "Explore",
+    "modeExploratoryHint": "Run all analysis types supported by current data",
+    "modeSuffix": " mode",
+    "recommendations": "Smart recommendations",
+    "aiGenerated": "AI generated",
+    "recLoading": "Generating recommendations from your data...",
+    "recLoadFailed": "Failed to load recommendations",
+    "vehicles": "{{count}} vehicles",
+    "daysData": "{{count}} days of data",
+    "records": "{{count}} records"
+  },
+  "error": {
+    "dataNotFoundTitle": "Data files not found",
+    "dataNotFoundDetail": "Check CSV_DATA_PATH and ensure the data directory contains .csv files.",
+    "planFailedTitle": "Failed to generate analysis plan",
+    "networkTitle": "Network error",
+    "networkDetail": "Cannot reach the analysis service. Ensure the backend is running and retry.",
+    "invalidRequestTitle": "Invalid request",
+    "invalidRequestDetail": "Check your input and try again",
+    "genericTitle": "Analysis failed",
+    "retry": "Retry"
+  },
+  "loading": {
+    "rendering": "Crafting your dashboard",
+    "waitHint": "Please wait — the analysis engine is running",
+    "tips": [
+      "Reading your question and locking intent…",
+      "Scanning the data pool and event semantics…",
+      "LLM shaping metrics and chart blueprints…",
+      "Aggregating PV / UV into trends and breakdowns…",
+      "Polishing narratives and insight highlights…"
+    ]
+  },
+  "dataMgmt": {
+    "title": "Data management",
+    "subtitle": "Manage CSV pool and event dictionary; test and edit in place",
+    "back": "Back to dashboard",
+    "tabCsv": "CSV data pool",
+    "tabDictionary": "Event dictionary"
+  },
+  "csv": {
+    "title": "CSV data pool",
+    "loading": "Loading...",
+    "emptyPool": "No CSV files — upload one",
+    "poolSummary": "{{count}} file(s) in pool",
+    "poolSummaryDefault": "{{count}} file(s) in pool · default {{name}}",
+    "upload": "Upload CSV",
+    "uploading": "Uploading…",
+    "uploadTitle": "Uploading CSV",
+    "largeFileHint": " · large files may take a while",
+    "uploadingAria": "Uploading",
+    "pickCsv": "Please select a .csv file",
+    "tooLarge": "File too large (max 200 MB per file)",
+    "uploadFailed": "Upload failed",
+    "loadFailed": "Failed to load data files",
+    "remove": "Remove",
+    "removeTitle": "Remove from data pool",
+    "confirmRemove": "Remove {{name}} from the data pool?",
+    "removed": "Removed {{name}}",
+    "deleteFailed": "Delete failed",
+    "footnote": "Uploads are merged into the pool; analysis uses all CSVs in the directory · max 200 MB per file"
+  },
+  "llm": {
+    "title": "DeepSeek model",
+    "subtitle": "Affects planning, recommendations, and dashboard copy",
+    "loading": "Loading…",
+    "hintFlash": "Faster responses for daily analysis and recommendations",
+    "hintPro": "Stronger reasoning for complex queries and caliber notes",
+    "loadFailed": "Failed to load model settings",
+    "switchFailed": "Failed to switch model",
+    "switching": "Switching…",
+    "switched": "Model updated — analysis and recommendations will use the new model"
+  },
+  "chartTheme": {
+    "label": "Chart colors",
+    "close": "Close color panel",
+    "paletteTitle": "Color palettes",
+    "paletteHint": "Category charts use palette colors; multi-series charts color by series",
+    "custom": "Custom palette",
+    "addColor": "+ Add color",
+    "removeColor": "Remove color"
+  },
+  "export": {
+    "label": "Export dashboard",
+    "busy": "Exporting {{format}}...",
+    "closeMenu": "Close export menu",
+    "failed": "Export failed"
+  },
+  "api": {
+    "requestFailed": "Request failed ({{status}})",
+    "timeout": "Request timed out — please retry",
+    "network": "Network connection failed",
+    "uploadTimeout": "Upload timed out — please retry",
+    "uploadFailed": "Upload failed",
+    "fileTooLarge": "File too large (max 200 MB per file)"
+  }
+}

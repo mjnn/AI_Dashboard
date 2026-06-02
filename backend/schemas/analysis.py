@@ -161,6 +161,10 @@ class AnalyzeRequest(BaseModel):
         default="auto",
         description="分析模式：auto 智能 / precise 精准单图 / exploratory 探索全量",
     )
+    locale: Literal["zh", "en", "de"] = Field(
+        default="zh",
+        description="界面与 LLM 面向用户文案的语言",
+    )
 
 
 class ExecutionSummary(BaseModel):

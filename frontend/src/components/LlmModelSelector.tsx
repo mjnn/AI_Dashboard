@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+
 import { api, ApiError } from "../services/api";
 import type { DeepSeekModelId, DeepSeekModelOption } from "../types";
 
@@ -6,18 +8,22 @@ interface LlmModelSelectorProps {
   disabled?: boolean;
 }
 
-const MODEL_HINTS: Record<DeepSeekModelId, string> = {
-  "deepseek-v4-flash": "响应更快，适合日常分析与推荐",
-  "deepseek-v4-pro": "推理更准，适合复杂查询与口径说明",
-};
-
 export default function LlmModelSelector({ disabled = false }: LlmModelSelectorProps) {
+  const { t } = useTranslation();
   const [model, setModel] = useState<DeepSeekModelId>("deepseek-v4-flash");
   const [options, setOptions] = useState<DeepSeekModelOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const modelHints = useMemo(
+    (): Record<DeepSeekModelId, string> => ({
+      "deepseek-v4-flash": t("llm.hintFlash"),
+      "deepseek-v4-pro": t("llm.hintPro"),
+    }),
+    [t]
+  );
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -27,11 +33,11 @@ export default function LlmModelSelector({ disabled = false }: LlmModelSelectorP
       setModel(data.model);
       setOptions(data.available_models);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "加载模型设置失败");
+      setError(err instanceof ApiError ? err.message : t("llm.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadSettings();
@@ -48,9 +54,9 @@ export default function LlmModelSelector({ disabled = false }: LlmModelSelectorP
       const data = await api.updateLlmSettings({ model: next });
       setModel(data.model);
       setOptions(data.available_models);
-      setSuccess("模型已切换，后续分析与推荐将使用新模型");
+      setSuccess(t("llm.switched"));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "切换模型失败");
+      setError(err instanceof ApiError ? err.message : t("llm.switchFailed"));
     } finally {
       setSaving(false);
     }
@@ -60,20 +66,18 @@ export default function LlmModelSelector({ disabled = false }: LlmModelSelectorP
     <section className="mb-5 rounded-xl border border-slate-200/80 bg-white/90 p-4 shadow-sm">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold text-slate-800">DeepSeek 模型</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            影响分析规划、智能推荐与看板文案生成
-          </p>
+          <h2 className="text-sm font-semibold text-slate-800">{t("llm.title")}</h2>
+          <p className="mt-0.5 text-xs text-slate-500">{t("llm.subtitle")}</p>
         </div>
-        {loading && <span className="text-xs text-slate-400">加载中…</span>}
+        {loading && <span className="text-xs text-slate-400">{t("llm.loading")}</span>}
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
         {(options.length > 0
           ? options
           : ([
-              { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash（更快）", selected: true },
-              { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro（更准）", selected: false },
+              { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", selected: true },
+              { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", selected: false },
             ] as DeepSeekModelOption[])
         ).map((item) => {
           const active = model === item.id;
@@ -97,13 +101,13 @@ export default function LlmModelSelector({ disabled = false }: LlmModelSelectorP
                 />
                 <span className="text-sm font-medium text-slate-800">{item.label}</span>
               </div>
-              <p className="mt-1 pl-4 text-xs text-slate-500">{MODEL_HINTS[item.id]}</p>
+              <p className="mt-1 pl-4 text-xs text-slate-500">{modelHints[item.id]}</p>
             </button>
           );
         })}
       </div>
 
-      {saving && <p className="mt-2 text-xs text-violet-600">正在切换…</p>}
+      {saving && <p className="mt-2 text-xs text-violet-600">{t("llm.switching")}</p>}
       {success && <p className="mt-2 text-xs text-emerald-600">{success}</p>}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
     </section>

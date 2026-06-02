@@ -32,8 +32,20 @@ def _resolve_under_data(path: Path) -> Path:
     return resolved
 
 
+def _is_under_backend_data(path: Path) -> bool:
+    """路径是否落在 backend/data 内（开发环境默认数据池）。"""
+    try:
+        return path.resolve().is_relative_to(DATA_DIR.resolve())
+    except ValueError:
+        return False
+
+
 def resolve_csv_data_dir() -> Path:
-    """解析 CSV 数据目录（CSV_DATA_PATH 指向文件夹）。"""
+    """解析 CSV 数据目录（CSV_DATA_PATH 指向文件夹）。
+
+    相对路径解析到 backend/data 下；绝对路径用于宿主机挂载（如 ECS /data/csv），
+    不再强制必须在 backend/data 内。
+    """
     load_dotenv(override=True)
     raw = os.getenv("CSV_DATA_PATH", "").strip()
 
@@ -49,12 +61,20 @@ def resolve_csv_data_dir() -> Path:
     if path.is_file():
         if path.suffix.lower() != ".csv":
             raise ConfigError(f"CSV_DATA_PATH 指向非 CSV 文件: {path}")
-        return _resolve_under_data(path.parent)
+        parent = path.parent
+        if _is_under_backend_data(parent):
+            return _resolve_under_data(parent)
+        return parent
 
     if not path.is_dir():
-        raise ConfigError(f"CSV 数据目录不存在: {path}")
+        if path.is_absolute():
+            path.mkdir(parents=True, exist_ok=True)
+        else:
+            raise ConfigError(f"CSV 数据目录不存在: {path}")
 
-    return _resolve_under_data(path)
+    if _is_under_backend_data(path):
+        return _resolve_under_data(path)
+    return path
 
 
 def list_csv_files() -> list[dict]:

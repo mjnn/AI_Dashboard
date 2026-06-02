@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import List, Set
+from typing import Any, List, Set
 
 from openai import APIConnectionError, APITimeoutError, APIStatusError, OpenAI
 from pydantic import ValidationError
@@ -12,14 +12,14 @@ from pydantic import ValidationError
 from config import get_deepseek_api_key
 from schemas.analysis import AnalysisPlan
 from services.analysis_registry import (
-    build_analysis_catalog_prompt,
-    build_chart_catalog_prompt,
     normalize_plan_for_analysis,
+    repair_funnel_analysis_plan,
 )
 from services.event_mapping import build_dict_csv_mapping_hint, repair_plan_event_adaptation
 from services.field_resolver import resolve_event
 
 from services.llm_settings import get_deepseek_model
+from services.locale import locale_instruction
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 REQUEST_TIMEOUT_SECONDS = 10.0
@@ -123,11 +123,13 @@ def _build_system_prompt(
     csv_event_names: List[str] | None = None,
     csv_columns: List[str] | None = None,
     events_index: dict | None = None,
+    *,
+    locale: str | None = None,
 ) -> str:
     catalog = build_analysis_catalog_prompt()
     chart_catalog = build_chart_catalog_prompt()
     csv_hint = _build_csv_events_hint(csv_event_names, csv_columns, events_index)
-    return f"""你是一位座舱埋点数据分析师。你的任务是根据用户的问题，生成一个完整的分析计划。
+    body = f"""你是一位座舱埋点数据分析师。你的任务是根据用户的问题，生成一个完整的分析计划。
 
 {events_whitelist}
 
@@ -171,6 +173,7 @@ def _build_system_prompt(
 - matched_event 必须在上述可用事件列表中，不要编造
 - csv_event_filter 必须来自数据池 event 列取值，格式不一致时由你完成适配
 - metrics[].type 只能是 count、nunique、formula 之一
+- metrics[].formula_components 必须是字符串数组（如 ["pv","uv_vin"]），禁止用 numerator/denominator 对象
 - time_range.type 只能是 last_n_days 或 date_range
 - intent_confidence=low 或 exploratory_mode=true 时，后端将自动执行当前 CSV 可支持的全量探索分析
 - 用户问题具体、分析目标清晰时 intent_confidence=high；仅说「分析一下」「看看情况」等设为 low
@@ -233,6 +236,7 @@ def _build_system_prompt(
   "filters": {{}},
   "time_range": {{"type": "last_n_days", "value": 30}}
 }}"""
+    return body + locale_instruction(locale)
 
 
 def _parse_llm_json(content: str) -> dict:
@@ -266,6 +270,70 @@ def _parse_llm_json(content: str) -> dict:
             ) from exc
 
     raise AnalysisPlanError("无法解析 LLM 返回的 JSON", raw_output=content)
+
+
+def _coerce_formula_components(value: Any) -> list[str] | None:
+    """将 LLM 常见的 dict 形态 formula_components 规范为指标 id 列表。"""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return [str(item) for item in value if item is not None and str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for key in ("numerator", "denominator", "components", "deps", "depends_on"):
+            item = value.get(key)
+            if isinstance(item, str) and item.strip():
+                parts.append(item.strip())
+            elif isinstance(item, list):
+                parts.extend(str(x).strip() for x in item if x is not None and str(x).strip())
+        if not parts:
+            for item in value.values():
+                if isinstance(item, str) and item.strip():
+                    parts.append(item.strip())
+                elif isinstance(item, list):
+                    parts.extend(
+                        str(x).strip() for x in item if x is not None and str(x).strip()
+                    )
+        return parts or None
+    return None
+
+
+def repair_plan_llm_payload(
+    data: dict,
+    *,
+    query: str = "",
+    csv_event_names: List[str] | None = None,
+    events_index: dict | None = None,
+) -> dict:
+    """修正 LLM 输出中易触发 Pydantic 校验失败的字段。"""
+    payload = dict(data)
+    if not payload.get("match_confidence"):
+        payload["match_confidence"] = "medium"
+
+    metrics = payload.get("metrics")
+    if isinstance(metrics, list):
+        repaired_metrics: list[Any] = []
+        for item in metrics:
+            if not isinstance(item, dict):
+                repaired_metrics.append(item)
+                continue
+            metric = dict(item)
+            if "formula_components" in metric:
+                metric["formula_components"] = _coerce_formula_components(
+                    metric.get("formula_components")
+                )
+            repaired_metrics.append(metric)
+        payload["metrics"] = repaired_metrics
+
+    payload = repair_funnel_analysis_plan(
+        payload,
+        query,
+        csv_event_names=csv_event_names,
+        events_index=events_index,
+    )
+    return payload
 
 
 def _canonicalize_plan_events(
@@ -339,7 +407,7 @@ def _validate_plan(
             query=query,
         )
 
-    return normalize_plan_for_analysis(plan)
+    return normalize_plan_for_analysis(plan, query=query)
 
 
 def _create_client() -> OpenAI:
@@ -362,11 +430,16 @@ def generate_plan(
     events_index: dict | None = None,
     csv_event_names: List[str] | None = None,
     csv_columns: List[str] | None = None,
+    locale: str | None = None,
 ) -> AnalysisPlan:
     """调用 DeepSeek 生成并校验分析计划。"""
     client = _create_client()
     system_prompt = _build_system_prompt(
-        events_whitelist, csv_event_names, csv_columns, events_index
+        events_whitelist,
+        csv_event_names,
+        csv_columns,
+        events_index,
+        locale=locale,
     )
 
     try:
@@ -400,6 +473,13 @@ def generate_plan(
 
     if events_index and csv_event_names:
         data = repair_plan_event_adaptation(data, events_index, csv_event_names, query)
+
+    data = repair_plan_llm_payload(
+        data,
+        query=query,
+        csv_event_names=csv_event_names,
+        events_index=events_index,
+    )
 
     return _validate_plan(
         data,

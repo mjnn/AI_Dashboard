@@ -46,6 +46,120 @@
   }
 }
 
+@keyframes upload-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+@keyframes chart-forge-bar {
+  0%,
+  100% {
+    transform: scaleY(0.28);
+    opacity: 0.45;
+    filter: brightness(0.9);
+  }
+  35% {
+    transform: scaleY(0.72);
+    opacity: 0.85;
+  }
+  55% {
+    transform: scaleY(1);
+    opacity: 1;
+    filter: brightness(1.15);
+  }
+  78% {
+    transform: scaleY(0.5);
+    opacity: 0.7;
+  }
+}
+
+@keyframes chart-forge-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes chart-forge-aurora {
+  0%,
+  100% {
+    transform: translate(-8%, -6%) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate(10%, 8%) scale(1.12);
+    opacity: 0.85;
+  }
+}
+
+@keyframes chart-forge-ring {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg) scale(0.96);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translate(-50%, -50%) rotate(180deg) scale(1.04);
+    opacity: 0.65;
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg) scale(0.96);
+    opacity: 0.35;
+  }
+}
+
+@keyframes chart-forge-scan {
+  0% {
+    top: 12%;
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.7;
+  }
+  88% {
+    opacity: 0.5;
+  }
+  100% {
+    top: 88%;
+    opacity: 0;
+  }
+}
+
+@keyframes chart-forge-spark {
+  0% {
+    stroke-dashoffset: 180;
+    opacity: 0.25;
+  }
+  45% {
+    opacity: 0.9;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.35;
+  }
+}
+
+@keyframes chart-forge-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(8, 145, 178, 0.08),
+      0 20px 50px -20px rgba(8, 145, 178, 0.25),
+      0 20px 50px -20px rgba(124, 58, 237, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(124, 58, 237, 0.12),
+      0 24px 60px -18px rgba(8, 145, 178, 0.35),
+      0 24px 60px -18px rgba(124, 58, 237, 0.3);
+  }
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
@@ -172,5 +286,153 @@
     box-shadow: none;
     background: transparent;
     backdrop-filter: none;
+  }
+
+  .chart-forge-panel {
+    animation: chart-forge-glow 3.6s ease-in-out infinite;
+  }
+
+  .chart-forge-stage {
+    position: relative;
+    margin: 0 auto;
+    height: 200px;
+    max-width: 320px;
+  }
+
+  .chart-forge-aurora {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(36px);
+    pointer-events: none;
+    animation: chart-forge-aurora 5.2s ease-in-out infinite;
+  }
+
+  .chart-forge-aurora-a {
+    width: 140px;
+    height: 140px;
+    left: 8%;
+    top: 10%;
+    background: rgba(34, 211, 238, 0.45);
+    animation-duration: 4.8s;
+  }
+
+  .chart-forge-aurora-b {
+    width: 120px;
+    height: 120px;
+    right: 5%;
+    bottom: 8%;
+    background: rgba(167, 139, 250, 0.42);
+    animation-duration: 6.1s;
+    animation-delay: -1.4s;
+  }
+
+  .chart-forge-ring {
+    position: absolute;
+    left: 50%;
+    top: 46%;
+    width: 150px;
+    height: 150px;
+    margin: -75px 0 0 -75px;
+    border-radius: 50%;
+    border: 1px dashed rgba(8, 145, 178, 0.28);
+    animation: chart-forge-ring 9s linear infinite;
+    pointer-events: none;
+  }
+
+  .chart-forge-orbit {
+    position: absolute;
+    left: 50%;
+    top: 46%;
+    width: 0;
+    height: 0;
+    animation: chart-forge-orbit 7.5s linear infinite;
+  }
+
+  .chart-forge-dot {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin: -3.5px 0 0 -3.5px;
+    box-shadow: 0 0 12px currentColor;
+  }
+
+  .chart-forge-dot-1 {
+    color: #06b6d4;
+    transform: rotate(0deg) translateX(70px);
+  }
+
+  .chart-forge-dot-2 {
+    color: #8b5cf6;
+    transform: rotate(120deg) translateX(70px);
+  }
+
+  .chart-forge-dot-3 {
+    color: #22d3ee;
+    transform: rotate(240deg) translateX(70px);
+  }
+
+  .chart-forge-scan {
+    position: absolute;
+    left: 12%;
+    right: 12%;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(34, 211, 238, 0.9),
+      rgba(167, 139, 250, 0.9),
+      transparent
+    );
+    box-shadow: 0 0 16px rgba(34, 211, 238, 0.6);
+    animation: chart-forge-scan 2.7s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .chart-forge-bars {
+    position: absolute;
+    left: 50%;
+    bottom: 18%;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 7px;
+    width: 168px;
+    height: 88px;
+    margin-left: -84px;
+    transform: perspective(280px) rotateX(12deg);
+  }
+
+  .chart-forge-bar {
+    flex: 1;
+    max-width: 14px;
+    height: 100%;
+    transform-origin: bottom center;
+    border-radius: 4px 4px 2px 2px;
+    background: linear-gradient(180deg, #67e8f9 0%, #0891b2 45%, #7c3aed 100%);
+    box-shadow: 0 -4px 18px rgba(8, 145, 178, 0.35);
+    animation-name: chart-forge-bar;
+    animation-timing-function: cubic-bezier(0.45, 0.05, 0.35, 1);
+    animation-iteration-count: infinite;
+  }
+
+  .chart-forge-sparkline {
+    position: absolute;
+    left: 14%;
+    right: 14%;
+    bottom: 22%;
+    height: 52px;
+    width: auto;
+    overflow: visible;
+    opacity: 0.85;
+  }
+
+  .chart-forge-spark-path {
+    fill: rgba(8, 145, 178, 0.14);
+    stroke: #7c3aed;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-dasharray: 180;
+    animation: chart-forge-spark 2.4s ease-in-out infinite alternate;
   }
 }

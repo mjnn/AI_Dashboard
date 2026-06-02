@@ -358,6 +358,7 @@ def run_exploratory_analysis(
     query: str = "",
     event_filter_override: Optional[set[str]] = None,
     events_index: dict | None = None,
+    locale: str | None = None,
 ) -> AnalysisResponse:
     """批量执行探索性分析并组装多面板响应。"""
     start_ms = time.perf_counter()
@@ -418,6 +419,7 @@ def run_exploratory_analysis(
         seed_plan,
         query or seed_plan.matched_event,
         scope_event_count=len(event_filter_override) if event_filter_override else 1,
+        locale=locale,
     )
     panels = apply_presentation_to_panels(panels, presentation)
 

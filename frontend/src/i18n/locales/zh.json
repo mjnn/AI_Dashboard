@@ -1,0 +1,123 @@
+{
+  "lang": {
+    "label": "语言",
+    "zh": "中文",
+    "en": "EN",
+    "de": "DE"
+  },
+  "app": {
+    "defaultTitle": "AI 座舱埋点看板",
+    "metaHint": "用自然语言描述分析需求，自动生成图表与运营洞察",
+    "scopeLabel": "分析范围",
+    "scopeEvents": "{{count}} 个事件（LLM 语义聚类）",
+    "rowCount": "{{count}} 条",
+    "dataManagement": "数据管理",
+    "newAnalysis": "新建分析",
+    "footer": "AI 座舱埋点看板 · 数据驱动运营洞察"
+  },
+  "input": {
+    "placeholder": "例如：蓝牙连接的近30天每日使用趋势",
+    "submit": "开始分析",
+    "submitting": "分析中...",
+    "modeGroup": "分析模式",
+    "modeAuto": "智能",
+    "modeAutoHint": "意图明确时精准分析，模糊时自动探索",
+    "modePrecise": "精准",
+    "modePreciseHint": "只执行 LLM 选定的单一分析",
+    "modeExploratory": "探索",
+    "modeExploratoryHint": "全量运行当前数据支持的所有分析",
+    "modeSuffix": "模式",
+    "recommendations": "智能分析推荐",
+    "aiGenerated": "AI 生成",
+    "recLoading": "正在基于数据生成推荐...",
+    "recLoadFailed": "加载分析推荐失败",
+    "vehicles": "{{count}} 车辆",
+    "daysData": "{{count}} 天数据",
+    "records": "{{count}} 条记录"
+  },
+  "error": {
+    "dataNotFoundTitle": "数据文件未找到",
+    "dataNotFoundDetail": "请检查 CSV_DATA_PATH 目录配置，并确保 data 目录内有 .csv 文件。",
+    "planFailedTitle": "分析计划生成失败",
+    "networkTitle": "网络连接异常",
+    "networkDetail": "无法连接分析服务，请确认后端已启动并重试。",
+    "invalidRequestTitle": "请求参数无效",
+    "invalidRequestDetail": "请检查输入内容后重试",
+    "genericTitle": "分析失败",
+    "retry": "重试"
+  },
+  "loading": {
+    "rendering": "正在编织你的看板",
+    "waitHint": "请稍候，智能分析引擎运行中",
+    "tips": [
+      "读懂你的问题，锁定分析意图…",
+      "扫描数据池，对齐事件与字段…",
+      "LLM 推演指标口径与图表形态…",
+      "聚合 PV / UV，勾勒趋势与分布…",
+      "为图表注入叙事与洞察高光…"
+    ]
+  },
+  "dataMgmt": {
+    "title": "数据管理",
+    "subtitle": "管理 CSV 数据池与埋点字典口径，支持边测边改",
+    "back": "返回看板",
+    "tabCsv": "CSV 数据池",
+    "tabDictionary": "埋点字典"
+  },
+  "csv": {
+    "title": "数据池 CSV",
+    "loading": "加载中...",
+    "emptyPool": "暂无 CSV，请上传",
+    "poolSummary": "数据池 {{count}} 个文件",
+    "poolSummaryDefault": "数据池 {{count}} 个文件 · 默认 {{name}}",
+    "upload": "上传 CSV",
+    "uploading": "上传中…",
+    "uploadTitle": "正在上传 CSV",
+    "largeFileHint": " · 大文件请耐心等待",
+    "uploadingAria": "上传中",
+    "pickCsv": "请选择 .csv 文件",
+    "tooLarge": "文件过大，单文件上限 200 MB",
+    "uploadFailed": "上传失败",
+    "loadFailed": "加载数据文件失败",
+    "remove": "移除",
+    "removeTitle": "从数据池移除",
+    "confirmRemove": "确定从数据池移除 {{name}}？",
+    "removed": "已移除 {{name}}",
+    "deleteFailed": "删除失败",
+    "footnote": "上传后自动合并进数据池，分析时将使用目录内全部 CSV · 单文件最大 200 MB"
+  },
+  "llm": {
+    "title": "DeepSeek 模型",
+    "subtitle": "影响分析规划、智能推荐与看板文案生成",
+    "loading": "加载中…",
+    "hintFlash": "响应更快，适合日常分析与推荐",
+    "hintPro": "推理更准，适合复杂查询与口径说明",
+    "loadFailed": "加载模型设置失败",
+    "switchFailed": "切换模型失败",
+    "switching": "正在切换…",
+    "switched": "模型已切换，后续分析与推荐将使用新模型"
+  },
+  "chartTheme": {
+    "label": "图表配色",
+    "close": "关闭配色面板",
+    "paletteTitle": "色彩组合",
+    "paletteHint": "分类图表按色板逐类区分；多系列图表按系列取色",
+    "custom": "自定义色彩组合",
+    "addColor": "+ 添加颜色",
+    "removeColor": "移除颜色"
+  },
+  "export": {
+    "label": "导出看板",
+    "busy": "导出 {{format}}...",
+    "closeMenu": "关闭导出菜单",
+    "failed": "导出失败"
+  },
+  "api": {
+    "requestFailed": "请求失败 ({{status}})",
+    "timeout": "请求超时，请稍后重试",
+    "network": "网络连接失败",
+    "uploadTimeout": "上传超时，请稍后重试",
+    "uploadFailed": "上传失败",
+    "fileTooLarge": "文件过大，单文件上限 200 MB"
+  }
+}

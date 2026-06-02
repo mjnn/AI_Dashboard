@@ -60,5 +60,5 @@ export function useAnalysis() {
     setResult(null);
   }, []);
 
-  return { status, result, error, lastQuery, execute, retry, reset };
+  return { status, result, error, lastQuery, lastMode, execute, retry, reset };
 }

@@ -15,6 +15,7 @@ from schemas.analysis import (
     PanelNarration,
 )
 from services.analysis_registry import ANALYSIS_SPEC_BY_ID
+from services.locale import locale_instruction
 from services.llm_planner import (
     AnalysisPlanError,
     LLMApiError,
@@ -405,6 +406,7 @@ def generate_dashboard_presentation(
     scope_event_count: int = 1,
     depth_insights: Optional[List[str]] = None,
     analysis_angles: Optional[List[str]] = None,
+    locale: str | None = None,
 ) -> DashboardPresentation:
     """调用 LLM 生成看板分类与生动文案；失败时回退规则兜底。"""
     if not panels:
@@ -429,7 +431,7 @@ def generate_dashboard_presentation(
         scope_event_count=scope_event_count,
         depth_insights=depth_insights,
         analysis_angles=analysis_angles,
-    )
+    ) + locale_instruction(locale)
 
     try:
         response = client.chat.completions.create(

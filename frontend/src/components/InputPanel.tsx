@@ -1,56 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+
 import { api } from "../services/api";
 import type {
   AnalysisModePreference,
   AnalysisRecommendation,
   DataSummary,
 } from "../types";
-
-const MODE_OPTIONS: {
-  id: AnalysisModePreference;
-  label: string;
-  hint: string;
-}[] = [
-  {
-    id: "auto",
-    label: "智能",
-    hint: "意图明确时精准分析，模糊时自动探索",
-  },
-  {
-    id: "precise",
-    label: "精准",
-    hint: "只执行 LLM 选定的单一分析",
-  },
-  {
-    id: "exploratory",
-    label: "探索",
-    hint: "全量运行当前数据支持的所有分析",
-  },
-];
-
-const MODE_LABEL: Record<AnalysisModePreference, string> = {
-  auto: "智能",
-  precise: "精准",
-  exploratory: "探索",
-};
-
-function formatDataSummary(summary: DataSummary | null): string {
-  if (!summary) {
-    return "";
-  }
-  const parts: string[] = [];
-  if (summary.events?.length) {
-    parts.push(summary.events[0].name);
-  }
-  if (summary.unique_vins != null) {
-    parts.push(`${summary.unique_vins.toLocaleString()} 车辆`);
-  }
-  if (summary.date_range) {
-    parts.push(`${summary.date_range.span_days} 天数据`);
-  }
-  parts.push(`${summary.total_rows.toLocaleString()} 条记录`);
-  return parts.join(" · ");
-}
 
 interface InputPanelProps {
   onSubmit: (query: string, mode: AnalysisModePreference) => void;
@@ -63,6 +19,7 @@ export default function InputPanel({
   disabled = false,
   dataPoolVersion = 0,
 }: InputPanelProps) {
+  const { t, i18n } = useTranslation();
   const [query, setQuery] = useState("");
   const [analysisMode, setAnalysisMode] = useState<AnalysisModePreference>("auto");
   const [showRecommendations, setShowRecommendations] = useState(false);
@@ -72,6 +29,33 @@ export default function InputPanel({
   const [recError, setRecError] = useState<string | null>(null);
   const [recSource, setRecSource] = useState<"llm" | "fallback" | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  const modeOptions = useMemo(
+    () =>
+      [
+        { id: "auto" as const, label: t("input.modeAuto"), hint: t("input.modeAutoHint") },
+        {
+          id: "precise" as const,
+          label: t("input.modePrecise"),
+          hint: t("input.modePreciseHint"),
+        },
+        {
+          id: "exploratory" as const,
+          label: t("input.modeExploratory"),
+          hint: t("input.modeExploratoryHint"),
+        },
+      ] satisfies { id: AnalysisModePreference; label: string; hint: string }[],
+    [t, i18n.language]
+  );
+
+  const modeLabel: Record<AnalysisModePreference, string> = useMemo(
+    () => ({
+      auto: t("input.modeAuto"),
+      precise: t("input.modePrecise"),
+      exploratory: t("input.modeExploratory"),
+    }),
+    [t, i18n.language]
+  );
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -90,6 +74,31 @@ export default function InputPanel({
     setRecError(null);
   }, [dataPoolVersion]);
 
+  useEffect(() => {
+    setRecommendations([]);
+    setDataSummary(null);
+    setRecSource(null);
+    setRecError(null);
+  }, [i18n.language]);
+
+  const formatDataSummary = (summary: DataSummary | null): string => {
+    if (!summary) {
+      return "";
+    }
+    const parts: string[] = [];
+    if (summary.events?.length) {
+      parts.push(summary.events[0].name);
+    }
+    if (summary.unique_vins != null) {
+      parts.push(t("input.vehicles", { count: summary.unique_vins.toLocaleString() }));
+    }
+    if (summary.date_range) {
+      parts.push(t("input.daysData", { count: summary.date_range.span_days }));
+    }
+    parts.push(t("input.records", { count: summary.total_rows.toLocaleString() }));
+    return parts.join(" · ");
+  };
+
   const loadRecommendations = async () => {
     if (recLoading) {
       return;
@@ -102,7 +111,7 @@ export default function InputPanel({
       setDataSummary(data.data_summary);
       setRecSource(data.source);
     } catch (err) {
-      setRecError(err instanceof Error ? err.message : "加载分析推荐失败");
+      setRecError(err instanceof Error ? err.message : t("input.recLoadFailed"));
     } finally {
       setRecLoading(false);
     }
@@ -128,7 +137,7 @@ export default function InputPanel({
     setShowRecommendations(false);
   };
 
-  const activeHint = MODE_OPTIONS.find((m) => m.id === analysisMode)?.hint ?? "";
+  const activeHint = modeOptions.find((m) => m.id === analysisMode)?.hint ?? "";
   const summaryText = formatDataSummary(dataSummary);
 
   return (
@@ -143,7 +152,7 @@ export default function InputPanel({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onFocus={handleFocus}
-            placeholder="例如：蓝牙连接的近30天每日使用趋势"
+            placeholder={t("input.placeholder")}
             disabled={disabled}
             className="flex-1 rounded-lg border border-slate-200/80 bg-white/70 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-600/20 disabled:bg-slate-50 disabled:text-slate-400"
           />
@@ -152,7 +161,7 @@ export default function InputPanel({
             disabled={disabled || !query.trim()}
             className="rounded-lg bg-gradient-to-r from-cyan-600 to-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:from-cyan-700 hover:to-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {disabled ? "分析中..." : "开始分析"}
+            {disabled ? t("input.submitting") : t("input.submit")}
           </button>
         </div>
 
@@ -160,9 +169,9 @@ export default function InputPanel({
           <div
             className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5"
             role="group"
-            aria-label="分析模式"
+            aria-label={t("input.modeGroup")}
           >
-            {MODE_OPTIONS.map((option) => {
+            {modeOptions.map((option) => {
               const selected = analysisMode === option.id;
               return (
                 <button
@@ -189,10 +198,10 @@ export default function InputPanel({
         <div className="absolute left-0 right-0 top-full z-[300] mt-2 max-h-80 overflow-y-auto rounded-xl border border-slate-200/90 bg-white/95 shadow-2xl backdrop-blur-md">
           <div className="sticky top-0 border-b border-gray-100 bg-gray-50 px-4 py-2.5">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-medium text-gray-700">智能分析推荐</p>
+              <p className="text-xs font-medium text-gray-700">{t("input.recommendations")}</p>
               {recSource === "llm" && (
                 <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-600">
-                  AI 生成
+                  {t("input.aiGenerated")}
                 </span>
               )}
             </div>
@@ -202,11 +211,9 @@ export default function InputPanel({
           </div>
 
           {recLoading && (
-            <p className="px-4 py-4 text-sm text-gray-400">正在基于数据生成推荐...</p>
+            <p className="px-4 py-4 text-sm text-gray-400">{t("input.recLoading")}</p>
           )}
-          {recError && (
-            <p className="px-4 py-4 text-sm text-red-500">{recError}</p>
-          )}
+          {recError && <p className="px-4 py-4 text-sm text-red-500">{recError}</p>}
           {!recLoading &&
             !recError &&
             recommendations.map((rec) => (
@@ -221,7 +228,8 @@ export default function InputPanel({
                     {rec.title}
                   </span>
                   <span className="text-[10px] text-gray-400">
-                    {MODE_LABEL[rec.analysis_mode]}模式
+                    {modeLabel[rec.analysis_mode]}
+                    {t("input.modeSuffix")}
                   </span>
                 </div>
                 <p className="text-sm text-gray-800">{rec.query}</p>

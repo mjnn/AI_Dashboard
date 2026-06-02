@@ -1,3 +1,5 @@
+import i18n, { getApiLocale } from "../i18n/config";
+import type { AppLocale } from "../i18n/types";
 import type {
   AnalysisModePreference,
   AnalysisResponse,
@@ -58,7 +60,7 @@ async function parseErrorBody(response: Response): Promise<string> {
       return text.slice(0, 200);
     }
   }
-  return `请求失败 (${response.status})`;
+  return i18n.t("api.requestFailed", { status: response.status });
 }
 
 async function request<T>(
@@ -90,10 +92,10 @@ async function request<T>(
       throw err;
     }
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiError("请求超时，请稍后重试", 408);
+      throw new ApiError(i18n.t("api.timeout"), 408);
     }
     throw new ApiError(
-      err instanceof Error ? err.message : "网络连接失败",
+      err instanceof Error ? err.message : i18n.t("api.network"),
       0
     );
   } finally {
@@ -105,13 +107,15 @@ export const api = {
   analyze: (
     query: string,
     analysisMode: AnalysisModePreference = "auto",
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    locale: AppLocale = getApiLocale()
   ) =>
     request<AnalysisResponse>("/api/analyze", {
       method: "POST",
       body: JSON.stringify({
         query,
         analysis_mode: analysisMode,
+        locale,
       }),
       signal,
     }),
@@ -119,15 +123,18 @@ export const api = {
   listEvents: (signal?: AbortSignal) =>
     request<EventsListResponse>("/api/events", { signal }),
 
-  getRecommendations: (signal?: AbortSignal) =>
-    request<RecommendationsResponse>("/api/recommendations", { signal }),
+  getRecommendations: (signal?: AbortSignal, locale: AppLocale = getApiLocale()) =>
+    request<RecommendationsResponse>(
+      `/api/recommendations?locale=${encodeURIComponent(locale)}`,
+      { signal }
+    ),
 
   listCsvFiles: (signal?: AbortSignal) =>
     request<CsvFilesResponse>("/api/csv-files", { signal }),
 
   uploadCsv: async (file: File, signal?: AbortSignal): Promise<CsvUploadResponse> => {
     if (file.size > MAX_CSV_UPLOAD_BYTES) {
-      throw new ApiError("文件过大，单文件上限 200 MB", 422);
+      throw new ApiError(i18n.t("api.fileTooLarge"), 422);
     }
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
@@ -150,9 +157,12 @@ export const api = {
         throw err;
       }
       if (err instanceof DOMException && err.name === "AbortError") {
-        throw new ApiError("上传超时，请稍后重试", 408);
+        throw new ApiError(i18n.t("api.uploadTimeout"), 408);
       }
-      throw new ApiError(err instanceof Error ? err.message : "上传失败", 0);
+      throw new ApiError(
+        err instanceof Error ? err.message : i18n.t("api.uploadFailed"),
+        0
+      );
     } finally {
       window.clearTimeout(timeoutId);
     }

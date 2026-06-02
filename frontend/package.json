@@ -12,9 +12,11 @@
     "echarts": "^5.5.0",
     "echarts-for-react": "^3.0.2",
     "html2canvas": "^1.4.1",
+    "i18next": "^26.3.0",
     "jspdf": "^4.2.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-i18next": "^17.0.8"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",

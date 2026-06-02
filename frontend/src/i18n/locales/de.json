@@ -1,0 +1,123 @@
+{
+  "lang": {
+    "label": "Sprache",
+    "zh": "中文",
+    "en": "EN",
+    "de": "DE"
+  },
+  "app": {
+    "defaultTitle": "AI-Cockpit-Ereignisanalyse",
+    "metaHint": "Beschreiben Sie Ihre Analyse in natürlicher Sprache — Diagramme und Erkenntnisse werden automatisch erzeugt",
+    "scopeLabel": "Umfang",
+    "scopeEvents": "{{count}} Ereignisse (LLM-Semantik-Clustering)",
+    "rowCount": "{{count}} Zeilen",
+    "dataManagement": "Datenverwaltung",
+    "newAnalysis": "Neue Analyse",
+    "footer": "AI-Cockpit-Ereignisanalyse · Datengetriebene Betriebseinblicke"
+  },
+  "input": {
+    "placeholder": "z. B. Täglicher Bluetooth-Nutzungstrend der letzten 30 Tage",
+    "submit": "Analysieren",
+    "submitting": "Analysiere...",
+    "modeGroup": "Analysemodus",
+    "modeAuto": "Smart",
+    "modeAutoHint": "Präzise bei klarem Intent; explorativ bei vagen Fragen",
+    "modePrecise": "Präzise",
+    "modePreciseHint": "Nur die vom LLM gewählte Einzelanalyse ausführen",
+    "modeExploratory": "Explorativ",
+    "modeExploratoryHint": "Alle vom aktuellen Datensatz unterstützten Analysetypen ausführen",
+    "modeSuffix": "-Modus",
+    "recommendations": "Intelligente Empfehlungen",
+    "aiGenerated": "KI-generiert",
+    "recLoading": "Empfehlungen werden aus Ihren Daten erzeugt...",
+    "recLoadFailed": "Empfehlungen konnten nicht geladen werden",
+    "vehicles": "{{count}} Fahrzeuge",
+    "daysData": "{{count}} Tage Daten",
+    "records": "{{count}} Datensätze"
+  },
+  "error": {
+    "dataNotFoundTitle": "Datendateien nicht gefunden",
+    "dataNotFoundDetail": "Prüfen Sie CSV_DATA_PATH und stellen Sie sicher, dass das data-Verzeichnis .csv-Dateien enthält.",
+    "planFailedTitle": "Analyseplan konnte nicht erzeugt werden",
+    "networkTitle": "Netzwerkfehler",
+    "networkDetail": "Analysedienst nicht erreichbar. Backend starten und erneut versuchen.",
+    "invalidRequestTitle": "Ungültige Anfrage",
+    "invalidRequestDetail": "Eingabe prüfen und erneut versuchen",
+    "genericTitle": "Analyse fehlgeschlagen",
+    "retry": "Erneut versuchen"
+  },
+  "loading": {
+    "rendering": "Dashboard wird geschmiedet",
+    "waitHint": "Bitte warten — Analyse-Engine läuft",
+    "tips": [
+      "Frage verstehen, Intent festlegen…",
+      "Datenpool und Event-Semantik scannen…",
+      "LLM formt Metriken und Diagramm-Entwürfe…",
+      "PV / UV aggregieren, Trends zeichnen…",
+      "Narrative und Insights verfeinern…"
+    ]
+  },
+  "dataMgmt": {
+    "title": "Datenverwaltung",
+    "subtitle": "CSV-Pool und Event-Wörterbuch verwalten; testen und bearbeiten",
+    "back": "Zurück zum Dashboard",
+    "tabCsv": "CSV-Datenpool",
+    "tabDictionary": "Event-Wörterbuch"
+  },
+  "csv": {
+    "title": "CSV-Datenpool",
+    "loading": "Laden...",
+    "emptyPool": "Keine CSV — bitte hochladen",
+    "poolSummary": "{{count}} Datei(en) im Pool",
+    "poolSummaryDefault": "{{count}} Datei(en) im Pool · Standard {{name}}",
+    "upload": "CSV hochladen",
+    "uploading": "Hochladen…",
+    "uploadTitle": "CSV wird hochgeladen",
+    "largeFileHint": " · große Dateien können dauern",
+    "uploadingAria": "Wird hochgeladen",
+    "pickCsv": "Bitte eine .csv-Datei wählen",
+    "tooLarge": "Datei zu groß (max. 200 MB pro Datei)",
+    "uploadFailed": "Upload fehlgeschlagen",
+    "loadFailed": "Datendateien konnten nicht geladen werden",
+    "remove": "Entfernen",
+    "removeTitle": "Aus Datenpool entfernen",
+    "confirmRemove": "{{name}} aus dem Datenpool entfernen?",
+    "removed": "{{name}} entfernt",
+    "deleteFailed": "Löschen fehlgeschlagen",
+    "footnote": "Uploads werden in den Pool zusammengeführt; Analyse nutzt alle CSVs im Verzeichnis · max. 200 MB pro Datei"
+  },
+  "llm": {
+    "title": "DeepSeek-Modell",
+    "subtitle": "Beeinflusst Planung, Empfehlungen und Dashboard-Texte",
+    "loading": "Laden…",
+    "hintFlash": "Schnellere Antworten für tägliche Analyse und Empfehlungen",
+    "hintPro": "Stärkeres Reasoning für komplexe Abfragen und Kaliberhinweise",
+    "loadFailed": "Modelleinstellungen konnten nicht geladen werden",
+    "switchFailed": "Modellwechsel fehlgeschlagen",
+    "switching": "Wechsle…",
+    "switched": "Modell aktualisiert — Analyse und Empfehlungen nutzen das neue Modell"
+  },
+  "chartTheme": {
+    "label": "Diagrammfarben",
+    "close": "Farbpanel schließen",
+    "paletteTitle": "Farbpaletten",
+    "paletteHint": "Kategoriediagramme nutzen Palettenfarben; Mehrfachserien nach Serie",
+    "custom": "Eigene Palette",
+    "addColor": "+ Farbe hinzufügen",
+    "removeColor": "Farbe entfernen"
+  },
+  "export": {
+    "label": "Dashboard exportieren",
+    "busy": "Exportiere {{format}}...",
+    "closeMenu": "Exportmenü schließen",
+    "failed": "Export fehlgeschlagen"
+  },
+  "api": {
+    "requestFailed": "Anfrage fehlgeschlagen ({{status}})",
+    "timeout": "Zeitüberschreitung — bitte erneut versuchen",
+    "network": "Netzwerkverbindung fehlgeschlagen",
+    "uploadTimeout": "Upload-Zeitüberschreitung — bitte erneut versuchen",
+    "uploadFailed": "Upload fehlgeschlagen",
+    "fileTooLarge": "Datei zu groß (max. 200 MB pro Datei)"
+  }
+}

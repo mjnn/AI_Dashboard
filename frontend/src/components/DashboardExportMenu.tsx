@@ -1,4 +1,6 @@
 import { useRef, useState, type RefObject } from "react";
+import { useTranslation } from "react-i18next";
+
 import type { AnalysisResponse } from "../types";
 import {
   exportDashboard,
@@ -21,6 +23,7 @@ export default function DashboardExportMenu({
   response,
   exportRootRef,
 }: DashboardExportMenuProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<DashboardExportFormat | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +45,7 @@ export default function DashboardExportMenu({
       await exportDashboard(root, format, title);
       setOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "导出失败");
+      setError(err instanceof Error ? err.message : t("export.failed"));
     } finally {
       setBusy(null);
     }
@@ -57,7 +60,9 @@ export default function DashboardExportMenu({
         className="rounded-lg border border-slate-200/80 bg-white/80 px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-white disabled:opacity-50"
         aria-expanded={open}
       >
-        {busy ? `导出 ${busy.toUpperCase()}...` : "导出看板"}
+        {busy
+          ? t("export.busy", { format: busy.toUpperCase() })
+          : t("export.label")}
       </button>
 
       {open && (
@@ -65,7 +70,7 @@ export default function DashboardExportMenu({
           <button
             type="button"
             className="fixed inset-0 z-40 cursor-default"
-            aria-label="关闭导出菜单"
+            aria-label={t("export.closeMenu")}
             onClick={() => setOpen(false)}
           />
           <div className="absolute right-0 top-full z-50 mt-2 w-40 rounded-xl border border-slate-200/90 bg-white p-1.5 shadow-xl">

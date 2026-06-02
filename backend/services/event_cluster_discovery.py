@@ -10,6 +10,7 @@ from openai import APIConnectionError, APITimeoutError, APIStatusError
 from pydantic import BaseModel, Field, ValidationError
 
 from schemas.analysis import AnalysisPlan
+from services.locale import locale_instruction
 from services.event_mapping import (
     build_dict_csv_mapping_hint,
     sanitize_csv_event_filter,
@@ -255,6 +256,7 @@ def discover_event_clusters(
     events_index: dict,
     *,
     seed_plan: AnalysisPlan | None = None,
+    locale: str | None = None,
 ) -> EventClusterDiscovery:
     """调用 LLM 做事件聚类；失败时规则兜底。"""
     if not csv_event_names:
@@ -284,7 +286,10 @@ def discover_event_clusters(
             messages=[
                 {
                     "role": "system",
-                    "content": "你只输出 JSON，擅长座舱埋点场景聚类与可执行分析设计。",
+                    "content": (
+                        "你只输出 JSON，擅长座舱埋点场景聚类与可执行分析设计。"
+                        + locale_instruction(locale)
+                    ),
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -346,10 +351,7 @@ def scope_from_cluster(cluster: EventCluster) -> Set[str]:
     return set(cluster.csv_events)
 
 
-def comparison_steps_from_cluster(
-    cluster: EventCluster,
-    events_index: dict,
-) -> List[str]:
+def comparison_steps_from_cluster(cluster: EventCluster) -> List[str]:
     """漏斗/对比用的步骤列表（优先 CSV 取值，便于聚合）。"""
     if cluster.funnel_order:
         return list(cluster.funnel_order)
@@ -362,7 +364,7 @@ def apply_cluster_to_plan(
     cluster: EventCluster,
 ) -> AnalysisPlan:
     """将主聚类写入分析计划。"""
-    steps = comparison_steps_from_cluster(cluster, events_index)
+    steps = comparison_steps_from_cluster(cluster)
     updates: dict = {
         "csv_event_filter": sorted(cluster.csv_events),
         "scope_label": cluster.name,

@@ -12,6 +12,8 @@ REMOTE_DIR="/srv/apps/${SERVICE}"
 NGINX_PREFIX="${NGINX_LOCATION_PREFIX:-/tools/ai-dashboard}"
 PUBLIC_URL="http://47.116.180.173${NGINX_PREFIX}/"
 HOST_PORT="${HOST_PORT:-8011}"
+CSV_HOST_DIR="${CSV_HOST_DIR:-/srv/data/ai-dashboard/csv}"
+CSV_CONTAINER_PATH="${CSV_CONTAINER_PATH:-/data/csv}"
 
 echo "==> Build frontend (base ${NGINX_PREFIX}/)"
 (
@@ -51,7 +53,24 @@ cd "\${BUILD}"
 docker build -t "\${REG}" .
 docker push "\${REG}"
 sudo mkdir -p ${REMOTE_DIR}
+sudo mkdir -p ${CSV_HOST_DIR}
 sudo cp deploy/compose.yaml ${REMOTE_DIR}/compose.yaml
+
+# 首次迁移：把旧容器/项目内 CSV 拷到宿主机数据目录（不覆盖已有文件）
+if [ -z "\$(sudo find ${CSV_HOST_DIR} -maxdepth 1 -name '*.csv' -print -quit 2>/dev/null)" ]; then
+  if sudo test -d ${REMOTE_DIR}/data; then
+    sudo cp -an ${REMOTE_DIR}/data/*.csv ${CSV_HOST_DIR}/ 2>/dev/null || true
+  fi
+  OLD_CID=\$(sudo docker ps -aq -f name=^${SERVICE}\$ | head -1 || true)
+  if [ -n "\${OLD_CID}" ]; then
+    sudo docker cp "\${OLD_CID}:/app/backend/data/." ${CSV_HOST_DIR}/ 2>/dev/null || true
+  fi
+  if [ -d "\${BUILD}/backend/data" ]; then
+    sudo cp -an "\${BUILD}/backend/data/"*.csv ${CSV_HOST_DIR}/ 2>/dev/null || true
+  fi
+fi
+sudo chmod 755 ${CSV_HOST_DIR}
+
 PRESERVE_KEY=""
 if sudo test -f ${REMOTE_DIR}/.env.runtime; then
   PRESERVE_KEY=\$(sudo grep '^DEEPSEEK_API_KEY=' ${REMOTE_DIR}/.env.runtime | head -1 || true)
@@ -61,7 +80,8 @@ SERVICE_NAME=ai-dashboard
 IMAGE=\${REG}
 HOST_PORT=${HOST_PORT}
 CONTAINER_PORT=8000
-CSV_DATA_PATH=./data
+CSV_DATA_PATH=${CSV_CONTAINER_PATH}
+CSV_HOST_DIR=${CSV_HOST_DIR}
 EOF
 if [[ -n "\${PRESERVE_KEY}" ]]; then
   echo "\${PRESERVE_KEY}" | sudo tee -a ${REMOTE_DIR}/.env.runtime > /dev/null
@@ -108,3 +128,4 @@ REMOTE
 echo "Done."
 echo "  Nginx: ${PUBLIC_URL}"
 echo "  Direct: http://47.116.180.173:${HOST_PORT}/"
+echo "  CSV (host): ${CSV_HOST_DIR} -> container ${CSV_CONTAINER_PATH}"

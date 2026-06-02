@@ -54,6 +54,119 @@ _WEEKDAY_PATTERN = re.compile(r"星期|weekday|周几|week_day", re.IGNORECASE)
 _HOUR_PATTERN = re.compile(r"时段|hour|小时|hour_of_day", re.IGNORECASE)
 _NEW_USER_PATTERN = re.compile(r"新用户|老用户|回访|新老|new.*return|returning", re.IGNORECASE)
 _FUNNEL_PATTERN = re.compile(r"漏斗|转化|funnel|conversion", re.IGNORECASE)
+_TABLE_DETAIL_PATTERN = re.compile(r"表格|明细|table", re.IGNORECASE)
+
+_CSV_FUNNEL_ORDER_TEMPLATES = [
+    ["carlog_entry", "carlog_record", "carlog_exit", "carlog_autocut", "carlog_video_edit"],
+]
+
+_DEFAULT_CARLOG_FUNNEL_EVENTS = ["Carlog_进入", "Carlog_录制", "Carlog_退出"]
+
+
+def wants_funnel_analysis(text: str) -> bool:
+    return bool(_FUNNEL_PATTERN.search(text or ""))
+
+
+def order_funnel_csv_events(candidates: list[str]) -> list[str]:
+    """按常见转化顺序排列 CSV event 取值。"""
+    if not candidates:
+        return []
+    pool = {str(c).lower(): str(c) for c in candidates}
+    for template in _CSV_FUNNEL_ORDER_TEMPLATES:
+        ordered = [pool[key] for key in template if key in pool]
+        if len(ordered) >= 2:
+            extras = sorted(c for c in candidates if c not in ordered)
+            return ordered + extras
+    return sorted(candidates)
+
+
+def infer_funnel_comparison_events(
+    data: dict,
+    *,
+    csv_event_names: list[str] | None = None,
+    events_index: dict | None = None,
+    query: str = "",
+) -> list[str]:
+    """为漏斗分析推断有序 comparison_events（字典事件名）。"""
+    existing = data.get("comparison_events") or []
+    if isinstance(existing, list) and len(existing) >= 2:
+        return [str(item) for item in existing]
+
+    pool = set(csv_event_names or [])
+    csv_filter = data.get("csv_event_filter") or []
+    csv_candidates = [str(v) for v in csv_filter if str(v) in pool] if csv_filter else []
+    if len(csv_candidates) < 2:
+        module = str(data.get("matched_module") or "")
+        matched = str(data.get("matched_event") or "")
+        hint = f"{query} {module} {matched}".lower()
+        if "carlog" in hint:
+            csv_candidates = order_funnel_csv_events(
+                [e for e in pool if "carlog" in e.lower()]
+            )
+    else:
+        csv_candidates = order_funnel_csv_events(csv_candidates)
+
+    if events_index and len(csv_candidates) >= 2:
+        from services.field_resolver import resolve_event
+
+        dict_events: list[str] = []
+        for csv_val in csv_candidates:
+            try:
+                resolved = resolve_event(
+                    csv_val,
+                    events_index,
+                    csv_event_names=csv_event_names,
+                    query=query,
+                )
+                if resolved.event_name not in dict_events:
+                    dict_events.append(resolved.event_name)
+            except Exception:
+                continue
+        if len(dict_events) >= 2:
+            return dict_events
+
+    if "carlog" in f"{query} {data.get('matched_module', '')}".lower():
+        return list(_DEFAULT_CARLOG_FUNNEL_EVENTS)
+    return [str(item) for item in existing] if existing else []
+
+
+def repair_funnel_analysis_plan(
+    data: dict,
+    query: str,
+    *,
+    csv_event_names: list[str] | None = None,
+    events_index: dict | None = None,
+) -> dict:
+    """用户明确要漏斗时，纠正 LLM 误选 event_comparison/table 的计划。"""
+    if not wants_funnel_analysis(query):
+        return data
+
+    payload = dict(data)
+    payload["analysis_type"] = "funnel"
+    payload["dimension"] = FUNNEL_STEP_DIMENSION
+
+    comparison = infer_funnel_comparison_events(
+        payload,
+        csv_event_names=csv_event_names,
+        events_index=events_index,
+        query=query,
+    )
+    if len(comparison) >= 2:
+        payload["comparison_events"] = comparison
+
+    visualization = dict(payload.get("visualization") or {})
+    chart_type = visualization.get("chart_type")
+    if not chart_type or chart_type in {"table", "bar", "multi_line", "stacked_bar"}:
+        visualization["chart_type"] = "funnel_chart"
+    visualization.setdefault("layout", "single")
+    visualization.setdefault("reasoning", "转化漏斗分析")
+    payload["visualization"] = visualization
+
+    payload["metrics"] = [
+        {"id": "user_count", "name": "到达车辆数", "type": "count"},
+        {"id": "conversion_rate", "name": "步间转化率(%)", "type": "count"},
+    ]
+    return payload
 _COMPARE_PATTERN = re.compile(r"对比|比较|compare|vs", re.IGNORECASE)
 _TOP_N_PATTERN = re.compile(r"top\s*\d+|前\s*\d+|排名|排行", re.IGNORECASE)
 _GROWTH_PATTERN = re.compile(r"环比|同比|增长率|growth|mom|yoy", re.IGNORECASE)
@@ -454,6 +567,21 @@ def normalize_visualization_chart(plan: AnalysisPlan) -> AnalysisPlan:
     allowed = set(spec["chart_types"])
     chart_type = plan.visualization.chart_type
     if chart_type in allowed:
+        if (
+            analysis_type == "funnel"
+            and chart_type == "table"
+            and not _TABLE_DETAIL_PATTERN.search(plan.visualization.reasoning or "")
+        ):
+            visualization = plan.visualization.model_copy(
+                update={
+                    "chart_type": spec["default_chart"],
+                    "reasoning": (
+                        f"{plan.visualization.reasoning} "
+                        f"(漏斗分析默认使用 {spec['default_chart']} 而非表格)"
+                    ),
+                }
+            )
+            return plan.model_copy(update={"visualization": visualization})
         return plan
 
     default_chart = spec["default_chart"]
@@ -502,13 +630,19 @@ def _infer_period_unit(plan: AnalysisPlan) -> str:
     return "hour"
 
 
-def infer_analysis_type(plan: AnalysisPlan) -> AnalysisType:
+def infer_analysis_type(plan: AnalysisPlan, query: str = "") -> AnalysisType:
     """从计划中推断分析类型（兼容旧计划无 analysis_type 字段）。"""
+    desc = plan.statistical_caliber.description
+    combined = f"{query} {desc} {plan.dimension} {' '.join(m.name for m in plan.metrics)}"
+
+    if wants_funnel_analysis(combined):
+        if plan.comparison_events and len(plan.comparison_events) >= 2:
+            return "funnel"
+        if plan.csv_event_filter and len(plan.csv_event_filter) >= 2:
+            return "funnel"
+
     if plan.analysis_type and plan.analysis_type in ANALYSIS_TYPE_IDS:
         return plan.analysis_type  # type: ignore[return-value]
-
-    desc = plan.statistical_caliber.description
-    combined = f"{desc} {plan.dimension} {' '.join(m.name for m in plan.metrics)}"
 
     if plan.comparison_events and len(plan.comparison_events) >= 2:
         if _FUNNEL_PATTERN.search(combined):
@@ -557,9 +691,9 @@ def validate_analysis_type(analysis_type: str) -> None:
         raise ValueError(f"analysis_type 必须是以下之一: {allowed}")
 
 
-def normalize_plan_for_analysis(plan: AnalysisPlan) -> AnalysisPlan:
+def normalize_plan_for_analysis(plan: AnalysisPlan, query: str = "") -> AnalysisPlan:
     """根据 analysis_type 规范化 dimension 与辅助字段。"""
-    analysis_type = infer_analysis_type(plan)
+    analysis_type = infer_analysis_type(plan, query=query)
     updates: dict = {"analysis_type": analysis_type}
 
     dimension_map = {

@@ -20,6 +20,7 @@ from services.llm_planner import (
     _parse_llm_json,
 )
 from services.llm_settings import get_deepseek_model
+from services.locale import locale_instruction, normalize_locale
 
 RecommendationMode = Literal["auto", "precise", "exploratory"]
 
@@ -145,9 +146,10 @@ def _validate_recommendations(data: dict, raw_output: str) -> List[AnalysisRecom
     ]
 
 
-def generate_recommendations() -> RecommendationsResponse:
+def generate_recommendations(locale: str | None = None) -> RecommendationsResponse:
     """基于数据池画像调用 LLM 生成分析推荐（带缓存）。"""
-    key = data_pool_cache_key()
+    lang = normalize_locale(locale)
+    key = f"{data_pool_cache_key()}:{lang}"
     if key in _cache:
         return _cache[key]
 
@@ -157,7 +159,7 @@ def generate_recommendations() -> RecommendationsResponse:
         return _fallback_recommendations(profile)
 
     client = _create_client()
-    system_prompt = _build_recommendation_prompt(profile)
+    system_prompt = _build_recommendation_prompt(profile) + locale_instruction(lang)
 
     try:
         response = client.chat.completions.create(

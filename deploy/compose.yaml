@@ -8,8 +8,11 @@ services:
     env_file:
       - .env.runtime
     environment:
-      CSV_DATA_PATH: ${CSV_DATA_PATH:-./data}
+      CSV_DATA_PATH: ${CSV_DATA_PATH:-/data/csv}
       FRONTEND_DIST: /app/frontend/dist
+    volumes:
+      # ECS 宿主机持久化目录，部署重建容器后 CSV 不丢失
+      - ${CSV_HOST_DIR:-/srv/data/ai-dashboard/csv}:/data/csv:rw
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
       interval: 30s

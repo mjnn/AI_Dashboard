@@ -1,16 +1,20 @@
 import { useCallback, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+
 import Dashboard from "./components/Dashboard";
 import ChartThemePicker from "./components/ChartThemePicker";
 import DashboardExportMenu from "./components/DashboardExportMenu";
 import DataManagementPage from "./components/DataManagementPage";
 import ErrorState from "./components/ErrorState";
 import InputPanel from "./components/InputPanel";
+import LanguageSwitcher from "./components/LanguageSwitcher";
 import LoadingState from "./components/LoadingState";
 import { useAnalysis } from "./hooks/useAnalysis";
 
 type AppView = "dashboard" | "data-management";
 
 export default function App() {
+  const { t } = useTranslation();
   const { status, result, error, execute, retry, reset } = useAnalysis();
   const [view, setView] = useState<AppView>("dashboard");
   const [poolVersion, setPoolVersion] = useState(0);
@@ -19,7 +23,7 @@ export default function App() {
   }, []);
   const isExploratory =
     result?.mode === "exploratory" || result?.mode === "comprehensive";
-  const headline = result?.presentation?.headline ?? "AI 座舱埋点看板";
+  const headline = result?.presentation?.headline ?? t("app.defaultTitle");
   const eventName = result?.plan.scope_label ?? result?.plan.matched_event;
   const scopeCount = result?.scope_events?.length ?? result?.plan.csv_event_filter?.length;
   const primaryCluster = result?.analysis_clusters?.find((c) => c.is_primary);
@@ -43,32 +47,33 @@ export default function App() {
             <h1 className="dash-title">{headline}</h1>
             {result && (
               <div className="dash-meta">
-                分析范围：<strong>{primaryCluster?.name ?? eventName}</strong>
+                {t("app.scopeLabel")}：<strong>{primaryCluster?.name ?? eventName}</strong>
                 {scopeCount != null && scopeCount > 1 && (
                   <>
                     {" "}
-                    · <strong>{scopeCount}</strong> 个事件（LLM 语义聚类）
+                    · <strong>{t("app.scopeEvents", { count: scopeCount })}</strong>
                   </>
                 )}
                 {result.execution.total_rows > 0 && (
                   <>
                     {" "}
-                    · 数据量 <strong>{result.execution.total_rows.toLocaleString()}</strong> 条
+                    · {t("app.rowCount", {
+                      count: result.execution.total_rows.toLocaleString(),
+                    })}
                   </>
                 )}
               </div>
             )}
-            {!result && (
-              <div className="dash-meta">用自然语言描述分析需求，自动生成图表与运营洞察</div>
-            )}
+            {!result && <div className="dash-meta">{t("app.metaHint")}</div>}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <LanguageSwitcher />
             <button
               type="button"
               onClick={() => setView("data-management")}
               className="rounded-lg border border-slate-200/80 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-white"
             >
-              数据管理
+              {t("app.dataManagement")}
             </button>
             <ChartThemePicker />
           </div>
@@ -109,7 +114,7 @@ export default function App() {
                 onClick={reset}
                 className="text-sm font-medium text-dash-cyan transition hover:text-cyan-700"
               >
-                新建分析
+                {t("app.newAnalysis")}
               </button>
             </div>
             <div ref={dashboardExportRef} id="dashboard-export-root">
@@ -120,7 +125,7 @@ export default function App() {
       </main>
 
       <footer className="relative z-0 shrink-0 border-t border-slate-200/60 py-7 text-center text-[11px] text-dash-mut">
-        AI 座舱埋点看板 · 数据驱动运营洞察
+        {t("app.footer")}
       </footer>
     </div>
   );

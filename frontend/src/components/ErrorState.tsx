@@ -1,13 +1,23 @@
+import { useTranslation } from "react-i18next";
+
 interface ErrorStateProps {
   message: string;
   onRetry?: () => void;
 }
 
-function classifyError(message: string): { title: string; detail: string } {
-  if (message.includes("404") || message.includes("不存在")) {
+function classifyError(
+  message: string,
+  t: (key: string) => string
+): { title: string; detail: string } {
+  if (
+    message.includes("404") ||
+    message.includes("不存在") ||
+    message.includes("not found") ||
+    message.toLowerCase().includes("nicht gefunden")
+  ) {
     return {
-      title: "数据文件未找到",
-      detail: "请检查 CSV_DATA_PATH 目录配置，并确保 data 目录内有 .csv 文件。",
+      title: t("error.dataNotFoundTitle"),
+      detail: t("error.dataNotFoundDetail"),
     };
   }
 
@@ -16,10 +26,11 @@ function classifyError(message: string): { title: string; detail: string } {
     message.includes("API Key") ||
     message.includes("校验") ||
     message.includes("白名单") ||
-    message.includes("分析计划")
+    message.includes("分析计划") ||
+    message.toLowerCase().includes("analysis plan")
   ) {
     return {
-      title: "分析计划生成失败",
+      title: t("error.planFailedTitle"),
       detail: message,
     };
   }
@@ -29,31 +40,34 @@ function classifyError(message: string): { title: string; detail: string } {
     lower.includes("fetch") ||
     lower.includes("network") ||
     lower.includes("连接") ||
+    lower.includes("verbindung") ||
     lower.includes("timeout") ||
     lower.includes("超时") ||
+    lower.includes("zeitüberschreitung") ||
     lower.includes("abort")
   ) {
     return {
-      title: "网络连接异常",
-      detail: "无法连接分析服务，请确认后端已启动并重试。",
+      title: t("error.networkTitle"),
+      detail: t("error.networkDetail"),
     };
   }
 
   if (message.startsWith("[") && message.includes("type")) {
     return {
-      title: "请求参数无效",
-      detail: "请检查输入内容后重试",
+      title: t("error.invalidRequestTitle"),
+      detail: t("error.invalidRequestDetail"),
     };
   }
 
   return {
-    title: "分析失败",
+    title: t("error.genericTitle"),
     detail: message,
   };
 }
 
 export default function ErrorState({ message, onRetry }: ErrorStateProps) {
-  const { title, detail } = classifyError(message);
+  const { t } = useTranslation();
+  const { title, detail } = classifyError(message, t);
 
   return (
     <div className="rounded-lg border border-red-200 bg-red-50 p-4">
@@ -70,7 +84,7 @@ export default function ErrorState({ message, onRetry }: ErrorStateProps) {
               onClick={onRetry}
               className="mt-3 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700"
             >
-              重试
+              {t("error.retry")}
             </button>
           )}
         </div>

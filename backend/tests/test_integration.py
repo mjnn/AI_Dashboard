@@ -27,6 +27,12 @@ from services.event_mapping import (
 )  # noqa: E402
 from services.event_scope import infer_related_csv_events  # noqa: E402
 from services.field_resolver import resolve_event, resolve_column_name  # noqa: E402
+from services.analysis_registry import (  # noqa: E402
+    normalize_plan_for_analysis,
+    repair_funnel_analysis_plan,
+)
+from services.llm_planner import repair_plan_llm_payload  # noqa: E402
+from schemas.analysis import AnalysisPlan  # noqa: E402
 from config import EVENTS_DICT_PATH  # noqa: E402
 
 
@@ -139,6 +145,118 @@ class TestEventMapping(unittest.TestCase):
         self.assertGreaterEqual(len(data["csv_event_filter"]), 3)
 
 
+class TestCsvDataDir(unittest.TestCase):
+    def test_external_absolute_csv_dir(self):
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        from config import resolve_csv_data_dir
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("config.load_dotenv"):
+                os.environ["CSV_DATA_PATH"] = tmp
+                resolved = resolve_csv_data_dir()
+            self.assertEqual(resolved, Path(tmp).resolve())
+            probe = resolved / "probe.csv"
+            probe.write_text("event,vin_code\n", encoding="utf-8")
+            self.assertTrue(probe.is_file())
+        os.environ.pop("CSV_DATA_PATH", None)
+
+
+class TestPlanLlmRepair(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.index = DictPreprocessor(EVENTS_DICT_PATH).index
+        cls.csv_events = list_distinct_csv_events(load_data_pool())
+
+    def test_formula_components_dict_coerced(self):
+        payload = repair_plan_llm_payload(
+            {
+                "analysis_type": "funnel",
+                "matched_event": "Carlog_进入",
+                "matched_module": "Carlog",
+                "metrics": [
+                    {
+                        "id": "user_count",
+                        "name": "用户数",
+                        "type": "count",
+                    },
+                    {
+                        "id": "conversion_rate",
+                        "name": "转化率",
+                        "type": "formula",
+                        "formula": "user_count / vehicle_count_first_step",
+                        "formula_components": {
+                            "numerator": "user_count",
+                            "denominator": "vehicle_count_first_step",
+                        },
+                    },
+                ],
+                "statistical_caliber": {
+                    "dedup_method": "按VIN去重",
+                    "time_granularity": "daily",
+                    "description": "漏斗各步 UV",
+                },
+                "visualization": {
+                    "chart_type": "funnel_chart",
+                    "layout": "single",
+                    "reasoning": "漏斗",
+                },
+                "dimension": "漏斗步骤",
+                "filters": {},
+                "time_range": {"type": "last_n_days", "value": 30},
+                "comparison_events": ["Carlog_进入", "Carlog_录制", "Carlog_退出"],
+            }
+        )
+        plan = AnalysisPlan.model_validate(payload)
+        self.assertEqual(
+            plan.metrics[1].formula_components,
+            ["user_count", "vehicle_count_first_step"],
+        )
+        self.assertEqual(payload["match_confidence"], "medium")
+
+    def test_repair_funnel_intent_overrides_table(self):
+        payload = repair_funnel_analysis_plan(
+            {
+                "analysis_type": "event_comparison",
+                "matched_event": "Carlog_进入",
+                "matched_module": "Carlog",
+                "match_confidence": "high",
+                "csv_event_filter": [
+                    "carlog_entry",
+                    "carlog_record",
+                    "carlog_exit",
+                ],
+                "metrics": [
+                    {"id": "pv", "name": "触发次数", "type": "count"},
+                    {"id": "uv", "name": "独立车辆", "type": "nunique", "field": "vin_code"},
+                ],
+                "visualization": {
+                    "chart_type": "table",
+                    "layout": "single",
+                    "reasoning": "各事件对比",
+                },
+                "dimension": "event",
+                "filters": {},
+                "time_range": {"type": "last_n_days", "value": 30},
+                "statistical_caliber": {
+                    "dedup_method": "按VIN去重",
+                    "time_granularity": "daily",
+                    "description": "漏斗",
+                },
+            },
+            "看看carlog漏斗",
+            csv_event_names=self.csv_events,
+            events_index=self.index,
+        )
+        self.assertEqual(payload["analysis_type"], "funnel")
+        self.assertEqual(payload["visualization"]["chart_type"], "funnel_chart")
+        self.assertGreaterEqual(len(payload["comparison_events"]), 2)
+        plan = AnalysisPlan.model_validate(payload)
+        self.assertEqual(plan.visualization.chart_type, "funnel_chart")
+
+
 class TestEventClusterRepair(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -214,6 +332,39 @@ class TestProcessCsv(unittest.TestCase):
         cls.event_def = resolve_event(
             "Carlog_进入", cls.index, csv_event_names=cls.csv_events, query=""
         ).event_def
+
+    def test_funnel_process_csv_shape(self):
+        from schemas.analysis import AnalysisPlan, TimeRange, StatisticalCaliber, VisualizationDef, MetricDef
+
+        payload = repair_funnel_analysis_plan(
+            {
+                "matched_event": "Carlog_进入",
+                "matched_module": "Carlog",
+                "match_confidence": "high",
+                "csv_event_filter": ["carlog_entry", "carlog_record", "carlog_exit"],
+                "filters": {},
+                "time_range": {"type": "last_n_days", "value": 30},
+                "statistical_caliber": {
+                    "dedup_method": "按VIN去重",
+                    "time_granularity": "daily",
+                    "description": "漏斗",
+                },
+            },
+            "看看carlog漏斗",
+            csv_event_names=self.csv_events,
+            events_index=self.index,
+        )
+        plan = AnalysisPlan.model_validate(payload)
+        plan = normalize_plan_for_analysis(plan, query="看看carlog漏斗")
+        data_df, _ = process_csv(
+            plan,
+            self.event_def,
+            df=self.df,
+            events_index=self.index,
+        )
+        self.assertFalse(data_df.empty)
+        self.assertIn("user_count", data_df.columns)
+        self.assertEqual(plan.visualization.chart_type, "funnel_chart")
 
     def _minimal_plan(self):
         from schemas.analysis import (
@@ -523,7 +674,7 @@ class TestApiWithLlm(unittest.TestCase):
             msg=f"{query!r} {mode} -> {r.status_code} {r.text[:300]}",
         )
         data = r.json()
-        self.assertIn(data["mode"], ("single", "exploratory"))
+        self.assertIn(data["mode"], ("single", "exploratory", "comprehensive"))
         self.assertGreater(data["execution"]["filtered_rows"], 0, msg=query)
         return data, elapsed
 
@@ -551,7 +702,7 @@ class TestApiWithLlm(unittest.TestCase):
 
     def test_analyze_exploratory_mode(self):
         data, elapsed = self._analyze("全面分析一下carlog", "exploratory")
-        self.assertEqual(data["mode"], "exploratory")
+        self.assertIn(data["mode"], ("exploratory", "comprehensive"))
         self.assertGreaterEqual(data.get("panel_count", 0), 2, msg=f"elapsed={elapsed:.1f}s")
 
     def test_analyze_usage_retention(self):

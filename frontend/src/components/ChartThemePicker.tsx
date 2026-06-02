@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+
 import { useChartTheme } from "../context/ChartThemeContext";
 import {
   CHART_PALETTE_PRESETS,
@@ -7,6 +9,7 @@ import {
 } from "../theme/chartPalettes";
 
 export default function ChartThemePicker() {
+  const { t } = useTranslation();
   const {
     presetId,
     customColors,
@@ -36,7 +39,7 @@ export default function ChartThemePicker() {
             />
           ))}
         </span>
-        图表配色
+        {t("chartTheme.label")}
       </button>
 
       {open && (
@@ -44,14 +47,12 @@ export default function ChartThemePicker() {
           <button
             type="button"
             className="fixed inset-0 z-40 cursor-default"
-            aria-label="关闭配色面板"
+            aria-label={t("chartTheme.close")}
             onClick={() => setOpen(false)}
           />
           <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-slate-200/90 bg-white p-4 shadow-xl">
-            <p className="text-xs font-semibold text-slate-800">色彩组合</p>
-            <p className="mt-0.5 text-[11px] text-slate-500">
-              分类图表按色板逐类区分；多系列图表按系列取色
-            </p>
+            <p className="text-xs font-semibold text-slate-800">{t("chartTheme.paletteTitle")}</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">{t("chartTheme.paletteHint")}</p>
 
             <div className="mt-3 grid grid-cols-2 gap-2">
               {CHART_PALETTE_PRESETS.filter((p) => p.id !== CUSTOM_PALETTE_ID).map(
@@ -95,7 +96,7 @@ export default function ChartThemePicker() {
                   : "border-slate-100 text-slate-700 hover:bg-slate-50"
               }`}
             >
-              自定义色彩组合
+              {t("chartTheme.custom")}
             </button>
 
             {presetId === CUSTOM_PALETTE_ID && (
@@ -119,7 +120,7 @@ export default function ChartThemePicker() {
                       type="button"
                       onClick={() => removeCustomColor(index)}
                       className="text-xs text-slate-400 hover:text-red-500"
-                      title="移除颜色"
+                      title={t("chartTheme.removeColor")}
                     >
                       ×
                     </button>
@@ -130,7 +131,7 @@ export default function ChartThemePicker() {
                   onClick={addCustomColor}
                   className="text-xs text-violet-600 hover:text-violet-800"
                 >
-                  + 添加颜色
+                  {t("chartTheme.addColor")}
                 </button>
               </div>
             )}

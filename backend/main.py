@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -288,14 +288,14 @@ def update_llm_settings(body: LlmSettingsUpdate):
 
 
 @app.get("/api/recommendations", response_model=RecommendationsResponse)
-def get_recommendations():
+def get_recommendations(locale: str = Query(default="zh")):
     try:
         ensure_data_pool_not_empty()
     except ConfigError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:
-        return generate_recommendations()
+        return generate_recommendations(locale=locale)
     except (LLMApiError, AnalysisPlanError) as exc:
         return _error_response(502, str(exc))
 
@@ -319,6 +319,7 @@ def _run_single_analysis(
     query: str = "",
     *,
     event_filter_override: set[str] | None = None,
+    locale: str | None = None,
 ) -> AnalysisResponse:
     data_df, execution = process_csv(
         plan,
@@ -337,7 +338,9 @@ def _run_single_analysis(
         execution=execution,
         chart_config=chart_config,
     )
-    presentation = generate_dashboard_presentation([panel], plan, query or plan.matched_event)
+    presentation = generate_dashboard_presentation(
+        [panel], plan, query or plan.matched_event, locale=locale
+    )
     [panel] = apply_presentation_to_panels([panel], presentation)
     chart_config = panel.chart_config
 
@@ -378,6 +381,7 @@ def analyze(request: AnalyzeRequest):
             events_index=events_index,
             csv_event_names=csv_event_names,
             csv_columns=columns,
+            locale=request.locale,
         )
     except MissingApiKeyError as exc:
         return _error_response(502, str(exc))
@@ -405,6 +409,7 @@ def analyze(request: AnalyzeRequest):
                 csv_event_names,
                 events_index,
                 seed_plan=plan,
+                locale=request.locale,
             )
         except (MissingApiKeyError, LLMApiError) as exc:
             logger.warning("Event cluster discovery failed: %s", exc)
@@ -451,6 +456,7 @@ def analyze(request: AnalyzeRequest):
                 csv_event_names=csv_event_names,
                 event_filter_override=event_filter_override,
                 cluster_discovery=cluster_discovery,
+                locale=request.locale,
             )
 
         if should_run_exploratory(plan, request.query, user_mode=user_mode):
@@ -471,6 +477,7 @@ def analyze(request: AnalyzeRequest):
                     query=request.query,
                     event_filter_override=event_filter_override,
                     events_index=events_index,
+                    locale=request.locale,
                 )
 
         return _run_single_analysis(
@@ -479,6 +486,7 @@ def analyze(request: AnalyzeRequest):
             df,
             query=request.query,
             event_filter_override=event_filter_override,
+            locale=request.locale,
         )
     except Exception as exc:
         logger.exception("CSV processing failed")

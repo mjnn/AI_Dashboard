@@ -1,0 +1,6 @@
+.git
+**/node_modules
+frontend/node_modules
+backend/.env
+backend/data/*.csv
+backend/data/llm_settings.json

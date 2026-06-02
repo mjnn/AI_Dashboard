@@ -15,7 +15,11 @@ from schemas.analysis import (
     MetricDef,
     VisualizationDef,
 )
-from services.analysis_registry import EVENT_NAME_DIMENSION, normalize_plan_for_analysis
+from services.analysis_registry import (
+    EVENT_NAME_DIMENSION,
+    normalize_plan_for_analysis,
+    wants_funnel_analysis,
+)
 from services.chart_builder import build
 from services.csv_processor import process_csv
 from services.dashboard_narrator import (
@@ -46,70 +50,77 @@ def enrich_plan_for_multi_event(
     return apply_cluster_to_plan(plan, discovery, cluster)
 
 
-def build_multi_event_plans(seed: AnalysisPlan) -> List[AnalysisPlan]:
+def build_multi_event_plans(
+    seed: AnalysisPlan,
+    *,
+    funnel_first: bool = False,
+    query: str = "",
+) -> List[AnalysisPlan]:
     """构建多事件专属子计划（对比 + 分事件趋势 + 可选漏斗）。"""
     base_metrics = [
         MetricDef(id="pv", name="触发次数", type="count"),
         MetricDef(id="uv", name="独立车辆", type="nunique", field="vin_code"),
     ]
-    plans: List[AnalysisPlan] = []
 
-    plans.append(
-        normalize_plan_for_analysis(
-            seed.model_copy(
-                update={
-                    "analysis_type": "event_comparison",
-                    "dimension": EVENT_NAME_DIMENSION,
-                    "sub_dimension": None,
-                    "metrics": base_metrics,
-                    "visualization": VisualizationDef(
-                        chart_type="bar",
-                        layout="single",
-                        reasoning="相关事件触发量与 UV 对比",
-                    ),
-                }
-            )
-        )
+    compare_plan = normalize_plan_for_analysis(
+        seed.model_copy(
+            update={
+                "analysis_type": "event_comparison",
+                "dimension": EVENT_NAME_DIMENSION,
+                "sub_dimension": None,
+                "metrics": base_metrics,
+                "visualization": VisualizationDef(
+                    chart_type="bar",
+                    layout="single",
+                    reasoning="相关事件触发量与 UV 对比",
+                ),
+            }
+        ),
+        query=query,
     )
 
-    plans.append(
-        normalize_plan_for_analysis(
-            seed.model_copy(
-                update={
-                    "analysis_type": "event_comparison",
-                    "dimension": "date",
-                    "sub_dimension": EVENT_NAME_DIMENSION,
-                    "metrics": [MetricDef(id="pv", name="触发次数", type="count")],
-                    "visualization": VisualizationDef(
-                        chart_type="multi_line",
-                        layout="single",
-                        reasoning="各相关事件随时间的变化趋势",
-                    ),
-                }
-            )
-        )
+    trend_plan = normalize_plan_for_analysis(
+        seed.model_copy(
+            update={
+                "analysis_type": "event_comparison",
+                "dimension": "date",
+                "sub_dimension": EVENT_NAME_DIMENSION,
+                "metrics": [MetricDef(id="pv", name="触发次数", type="count")],
+                "visualization": VisualizationDef(
+                    chart_type="multi_line",
+                    layout="single",
+                    reasoning="各相关事件随时间的变化趋势",
+                ),
+            }
+        ),
+        query=query,
     )
 
+    funnel_plan: AnalysisPlan | None = None
     if seed.comparison_events and len(seed.comparison_events) >= 2:
-        plans.append(
-            normalize_plan_for_analysis(
-                seed.model_copy(
-                    update={
-                        "analysis_type": "funnel",
-        "metrics": [
-                            MetricDef(id="user_count", name="用户数", type="count"),
-                        ],
-                        "visualization": VisualizationDef(
-                            chart_type="funnel_chart",
-                            layout="single",
-                            reasoning="相关事件转化漏斗",
-                        ),
-                    }
-                )
-            )
+        funnel_plan = normalize_plan_for_analysis(
+            seed.model_copy(
+                update={
+                    "analysis_type": "funnel",
+                    "metrics": [
+                        MetricDef(id="user_count", name="到达车辆数", type="count"),
+                        MetricDef(id="conversion_rate", name="步间转化率(%)", type="count"),
+                    ],
+                    "visualization": VisualizationDef(
+                        chart_type="funnel_chart",
+                        layout="single",
+                        reasoning="相关事件转化漏斗",
+                    ),
+                }
+            ),
+            query=query,
         )
 
-    return plans
+    if funnel_plan and funnel_first:
+        return [funnel_plan, compare_plan, trend_plan]
+    if funnel_plan:
+        return [compare_plan, trend_plan, funnel_plan]
+    return [compare_plan, trend_plan]
 
 
 def _run_panel_plans(
@@ -183,13 +194,18 @@ def run_comprehensive_analysis(
     csv_event_names: List[str],
     event_filter_override: Set[str],
     cluster_discovery: EventClusterDiscovery,
+    locale: str | None = None,
 ) -> AnalysisResponse:
     """多事件综合看板：LLM 聚类驱动对比面板 + 探索性或精准主分析。"""
     start_ms = time.perf_counter()
     plan = enrich_plan_for_multi_event(plan, discovery=cluster_discovery)
     primary_cluster = get_primary_cluster(cluster_discovery)
 
-    multi_plans = build_multi_event_plans(plan)
+    multi_plans = build_multi_event_plans(
+        plan,
+        funnel_first=wants_funnel_analysis(query),
+        query=query,
+    )
     multi_panels, multi_unavail, total_rows, max_filtered, multi_ok = _run_panel_plans(
         multi_plans,
         event_def=event_def,
@@ -223,6 +239,7 @@ def run_comprehensive_analysis(
                 query=query,
                 event_filter_override=event_filter_override,
                 events_index=events_index,
+                locale=locale,
             )
             core_panels = exploratory.panels or []
             core_plan = exploratory.plan
@@ -278,6 +295,7 @@ def run_comprehensive_analysis(
         scope_event_count=len(event_filter_override),
         depth_insights=cluster_discovery.depth_insights,
         analysis_angles=primary_cluster.analysis_angles,
+        locale=locale,
     )
     panels = apply_presentation_to_panels(panels, presentation)
 
