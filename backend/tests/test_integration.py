@@ -8,6 +8,8 @@ import time
 import unittest
 from pathlib import Path
 
+import pandas as pd
+
 # 保证从 backend 目录可 import
 BACKEND = Path(__file__).resolve().parents[1]
 if str(BACKEND) not in sys.path:
@@ -187,6 +189,53 @@ class TestProcessCsv(unittest.TestCase):
         self.assertEqual(execution.status, "success")
         self.assertGreater(execution.filtered_rows, 0)
         self.assertFalse(result.empty)
+
+    def test_usage_distribution_bucket_numeric_order(self):
+        from schemas.analysis import (
+            AnalysisPlan,
+            MetricDef,
+            StatisticalCaliber,
+            TimeRange,
+            VisualizationDef,
+        )
+        from services.csv_processor import (
+            _aggregate_usage_buckets,
+            _usage_count_from_bucket_label,
+        )
+
+        plan = AnalysisPlan(
+            analysis_type="usage_distribution",
+            matched_event="Carlog_进入",
+            matched_module="Carlog",
+            match_confidence="high",
+            metrics=[MetricDef(id="vehicle_count", name="车辆数", type="count")],
+            visualization=VisualizationDef(
+                chart_type="horizontal_bar",
+                layout="single",
+                reasoning="test",
+            ),
+            dimension="使用次数分组",
+            filters={},
+            time_range=TimeRange(type="last_n_days", value=30),
+            statistical_caliber=StatisticalCaliber(
+                dedup_method="按VIN去重",
+                time_granularity="daily",
+                description="test",
+            ),
+        )
+        df = pd.DataFrame(
+            {
+                "vin_code": ["v1"] * 1 + ["v2"] * 172 + ["v3"] * 107 + ["v4"] * 2,
+                "event": ["carlog_record"] * 282,
+            }
+        )
+        result = _aggregate_usage_buckets(
+            df, "vin_code", plan, retention_only=False
+        )
+        labels = result["使用次数分组"].tolist()
+        numeric_order = [_usage_count_from_bucket_label(label) for label in labels]
+        self.assertEqual(numeric_order, sorted(numeric_order))
+        self.assertEqual(labels[:2], ["使用1次", "使用2次"])
 
 
 class TestApiNoLlm(unittest.TestCase):

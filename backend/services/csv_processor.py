@@ -352,6 +352,19 @@ def _usage_bucket_label(count: int) -> str:
     return f"使用{count}次"
 
 
+def _usage_count_from_bucket_label(label: str) -> int:
+    match = re.match(r"使用(\d+)次", str(label))
+    return int(match.group(1)) if match else 0
+
+
+def _active_days_sort_key(label: str) -> int:
+    text = str(label)
+    if text == "活跃10天以上":
+        return 11
+    match = re.match(r"活跃(\d+)天", text)
+    return int(match.group(1)) if match else 999
+
+
 def _aggregate_usage_buckets(
     df: pd.DataFrame,
     vin_col: str,
@@ -369,10 +382,13 @@ def _aggregate_usage_buckets(
     bucket_counts = (
         usage.groupby("_bucket").size().reset_index(name="_vehicle_count")
     )
+    bucket_order = usage.drop_duplicates(subset="_bucket").set_index("_bucket")["_usage_count"]
+    bucket_counts["_sort"] = bucket_counts["_bucket"].map(bucket_order)
+    bucket_counts = bucket_counts.sort_values("_sort")
     bucket_counts = bucket_counts.rename(columns={"_bucket": plan.dimension})
     metric_id = plan.metrics[0].id if plan.metrics else "vehicle_count"
     result = bucket_counts.rename(columns={"_vehicle_count": metric_id})
-    return result[[plan.dimension, metric_id]].sort_values(by=plan.dimension)
+    return result[[plan.dimension, metric_id]]
 
 
 def _aggregate_summary_kpi(
@@ -744,7 +760,8 @@ def _aggregate_active_days_distribution(
     metric_id = plan.metrics[0].id if plan.metrics else "vehicle_count"
     result = buckets.value_counts().reset_index()
     result.columns = [plan.dimension, metric_id]
-    return result.sort_values(plan.dimension).reset_index(drop=True)
+    result["_sort"] = result[plan.dimension].map(_active_days_sort_key)
+    return result.sort_values("_sort").drop(columns="_sort").reset_index(drop=True)
 
 
 def _aggregate_heatmap_time(
