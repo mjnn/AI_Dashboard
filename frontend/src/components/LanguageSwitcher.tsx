@@ -5,7 +5,6 @@ import { SUPPORTED_LOCALES, type AppLocale } from "../i18n/types";
 const LOCALE_LABEL_KEYS: Record<AppLocale, string> = {
   zh: "lang.zh",
   en: "lang.en",
-  de: "lang.de",
 };
 
 export default function LanguageSwitcher() {

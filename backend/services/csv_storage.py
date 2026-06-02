@@ -90,8 +90,12 @@ def save_csv_upload(content: bytes, raw_filename: str) -> CsvUploadResponse:
         raise
 
     from services.recommendation_service import clear_recommendations_cache
+    from services.analysis_route_memory import clear_route_cache
+    from services.csv_processor import invalidate_data_pool_cache
 
     clear_recommendations_cache()
+    clear_route_cache()
+    invalidate_data_pool_cache()
 
     listing = build_csv_files_response()
     return CsvUploadResponse(
@@ -118,6 +122,10 @@ def delete_csv_file(filename: str) -> CsvFilesResponse:
     target.unlink()
 
     from services.recommendation_service import clear_recommendations_cache
+    from services.analysis_route_memory import clear_route_cache
+    from services.csv_processor import invalidate_data_pool_cache
 
     clear_recommendations_cache()
+    clear_route_cache()
+    invalidate_data_pool_cache()
     return build_csv_files_response()

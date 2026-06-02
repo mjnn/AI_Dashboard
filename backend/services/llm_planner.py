@@ -12,8 +12,11 @@ from pydantic import ValidationError
 from config import get_deepseek_api_key
 from schemas.analysis import AnalysisPlan
 from services.analysis_registry import (
+    build_analysis_catalog_prompt,
+    build_chart_catalog_prompt,
     normalize_plan_for_analysis,
     repair_funnel_analysis_plan,
+    repair_usage_retention_plan,
 )
 from services.event_mapping import build_dict_csv_mapping_hint, repair_plan_event_adaptation
 from services.field_resolver import resolve_event
@@ -141,7 +144,7 @@ def _build_system_prompt(
 
 ## 可用指标类型
 - count: 计数（触发次数/PV）
-- nunique: 去重计数（独立用户数/UV），需指定去重字段（如 vin_code）
+- nunique: 按车去重（UV），需指定去重字段（如 vin_code）
 - formula: 复合指标，表达式如 "pv / uv_vin"（渗透率），需 formula_components
 
 ## 输出要求
@@ -192,7 +195,7 @@ def _build_system_prompt(
   "match_confidence": "high",
   "metrics": [
     {{"id": "pv", "name": "触发次数", "type": "count"}},
-    {{"id": "uv_vin", "name": "独立车辆数", "type": "nunique", "field": "vin_code"}}
+    {{"id": "uv_vin", "name": "按车去重", "type": "nunique", "field": "vin_code"}}
   ],
   "statistical_caliber": {{
     "dedup_method": "按VIN去重计UV",
@@ -272,12 +275,45 @@ def _parse_llm_json(content: str) -> dict:
     raise AnalysisPlanError("无法解析 LLM 返回的 JSON", raw_output=content)
 
 
+def _normalize_formula_component_id(raw: str) -> str | None:
+    """将 LLM 表达式键名规范为 formula_components 可用的指标 id。"""
+    text = raw.strip()
+    if not text:
+        return None
+    unique_match = re.match(r"n?unique\s*\(\s*(\w+)\s*\)", text, re.I)
+    if unique_match:
+        field = unique_match.group(1).lower()
+        if field in ("vin_code", "vin"):
+            return "uv_vin"
+        return f"uv_{field}"
+    if re.fullmatch(r"count\s*\(\s*\*?\s*\)", text, re.I):
+        return "pv"
+    if re.fullmatch(r"[\w]+", text):
+        return text
+    slug = re.sub(r"[^\w]+", "_", text).strip("_")
+    return slug or None
+
+
+def _extract_formula_ids_from_expression(formula: str) -> list[str] | None:
+    if not formula or not isinstance(formula, str):
+        return None
+    tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", formula)
+    keywords = {"and", "or", "not", "if", "else", "true", "false"}
+    ids = [token for token in tokens if token.lower() not in keywords]
+    return ids or None
+
+
 def _coerce_formula_components(value: Any) -> list[str] | None:
     """将 LLM 常见的 dict 形态 formula_components 规范为指标 id 列表。"""
     if value is None:
         return None
     if isinstance(value, list):
-        return [str(item) for item in value if item is not None and str(item).strip()]
+        parts = [
+            str(item).strip()
+            for item in value
+            if item is not None and str(item).strip()
+        ]
+        return parts or None
     if isinstance(value, str) and value.strip():
         return [value.strip()]
     if isinstance(value, dict):
@@ -287,16 +323,37 @@ def _coerce_formula_components(value: Any) -> list[str] | None:
             if isinstance(item, str) and item.strip():
                 parts.append(item.strip())
             elif isinstance(item, list):
-                parts.extend(str(x).strip() for x in item if x is not None and str(x).strip())
+                parts.extend(
+                    str(x).strip() for x in item if x is not None and str(x).strip()
+                )
         if not parts:
-            for item in value.values():
+            for key, item in value.items():
+                if isinstance(item, dict):
+                    comp_id = item.get("id") or item.get("metric_id") or item.get("name")
+                    if isinstance(comp_id, str) and comp_id.strip():
+                        parts.append(comp_id.strip())
+                        continue
+                    field = item.get("field")
+                    if isinstance(field, str) and field.strip():
+                        normalized = _normalize_formula_component_id(str(key))
+                        parts.append(normalized or f"uv_{field.strip()}")
+                        continue
                 if isinstance(item, str) and item.strip():
                     parts.append(item.strip())
                 elif isinstance(item, list):
                     parts.extend(
                         str(x).strip() for x in item if x is not None and str(x).strip()
                     )
-        return parts or None
+                normalized_key = _normalize_formula_component_id(str(key))
+                if normalized_key:
+                    parts.append(normalized_key)
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for part in parts:
+            if part not in seen:
+                seen.add(part)
+                deduped.append(part)
+        return deduped or None
     return None
 
 
@@ -327,6 +384,12 @@ def repair_plan_llm_payload(
             repaired_metrics.append(metric)
         payload["metrics"] = repaired_metrics
 
+    payload = repair_usage_retention_plan(
+        payload,
+        query,
+        csv_event_names=csv_event_names,
+        events_index=events_index,
+    )
     payload = repair_funnel_analysis_plan(
         payload,
         query,

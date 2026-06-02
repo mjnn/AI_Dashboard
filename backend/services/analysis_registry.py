@@ -55,26 +55,148 @@ _HOUR_PATTERN = re.compile(r"时段|hour|小时|hour_of_day", re.IGNORECASE)
 _NEW_USER_PATTERN = re.compile(r"新用户|老用户|回访|新老|new.*return|returning", re.IGNORECASE)
 _FUNNEL_PATTERN = re.compile(r"漏斗|转化|funnel|conversion", re.IGNORECASE)
 _TABLE_DETAIL_PATTERN = re.compile(r"表格|明细|table", re.IGNORECASE)
+# 「1次和2次」「使用1次」等 — 按 VIN 使用频次分桶，不是漏斗转化
+_USAGE_FREQUENCY_PATTERN = re.compile(
+    r"(?:"
+    r"[12一二]\s*次\s*(?:和|与|、)\s*[12一二]\s*次|"
+    r"[12]次和[12]次|"
+    r"一次\s*(?:和|与)\s*两次|"
+    r"使用\s*[12一二]\s*次|"
+    r"用了\s*[12一二]\s*次|"
+    r"触发\s*[12一二]\s*次"
+    r")",
+    re.IGNORECASE,
+)
 
-_CSV_FUNNEL_ORDER_TEMPLATES = [
-    ["carlog_entry", "carlog_record", "carlog_exit", "carlog_autocut", "carlog_video_edit"],
+_CSV_FUNNEL_ORDER_TEMPLATES: list[list[str]] = []
+
+# 漏斗步骤语义排序（通用关键词，非模块硬编码）
+_FUNNEL_STEP_ORDER_HINTS: list[tuple[re.Pattern[str], int]] = [
+    (re.compile(r"进入|entry|开始|打开|start", re.I), 10),
+    (re.compile(r"发起|触发|trigger", re.I), 15),
+    (re.compile(r"录制|record", re.I), 20),
+    (re.compile(r"编辑|edit", re.I), 30),
+    (re.compile(r"裁剪|剪辑|cut|clip|autocut", re.I), 35),
+    (re.compile(r"完成|保存|导出|finish|save", re.I), 50),
+    (re.compile(r"退出|exit|close|离开", re.I), 90),
 ]
 
-_DEFAULT_CARLOG_FUNNEL_EVENTS = ["Carlog_进入", "Carlog_录制", "Carlog_退出"]
+
+def _funnel_step_sort_key(label: str) -> tuple[int, str]:
+    rank = 50
+    for pattern, score in _FUNNEL_STEP_ORDER_HINTS:
+        if pattern.search(label):
+            rank = min(rank, score)
+    return (rank, label.lower())
+
+
+def order_funnel_comparison_events(events: list[str]) -> list[str]:
+    """对字典 canonical 事件名按漏斗语义重排（进入→…→退出）。"""
+    if len(events) < 2:
+        return [str(item) for item in events]
+    return sorted([str(item) for item in events], key=_funnel_step_sort_key)
 
 
 def wants_funnel_analysis(text: str) -> bool:
+    if wants_usage_frequency_analysis(text):
+        return False
     return bool(_FUNNEL_PATTERN.search(text or ""))
 
 
+def wants_usage_frequency_analysis(text: str) -> bool:
+    """用户关心 VIN 使用次数分桶（如使用 1 次 / 2 次的用户数），非漏斗转化。"""
+    q = text or ""
+    if _USAGE_FREQUENCY_PATTERN.search(q):
+        return True
+    if _USAGE_BUCKET_PATTERN.search(q) and re.search(
+        r"用户|车辆|vin|人数", q, re.IGNORECASE
+    ):
+        return True
+    return False
+
+
+def _resolve_usage_csv_event_filter(
+    payload: dict,
+    query: str,
+    *,
+    csv_event_names: list[str] | None,
+    events_index: dict | None,
+) -> tuple[list[str], str | None]:
+    """
+    频次分析的事件范围：仅使用 matched_event 经字典/数据池解析出的 CSV 取值。
+    不使用 query 里的「进入/carlog」等关键词猜事件；避免漏斗多步 filter 污染范围。
+    """
+    pool = list(csv_event_names or [])
+    pool_set = set(pool)
+    matched = str(payload.get("matched_event") or "").strip()
+    canonical: str | None = None
+
+    if events_index and matched and pool:
+        try:
+            from services.field_resolver import resolve_event
+
+            resolved = resolve_event(
+                matched,
+                events_index,
+                csv_event_names=pool,
+                query=query,
+            )
+            labels = sorted(
+                {str(label) for label in (resolved.csv_labels or ()) if str(label) in pool_set}
+            )
+            if labels:
+                if resolved.event_name and resolved.event_name != matched:
+                    canonical = resolved.event_name
+                return labels, canonical
+        except Exception:
+            pass
+
+    raw = payload.get("csv_event_filter") or []
+    if isinstance(raw, list) and pool_set:
+        sanitized = sorted({str(v) for v in raw if str(v) in pool_set})
+        if sanitized:
+            return sanitized, None
+    return [], None
+
+
+def wants_funnel_table_detail(query: str) -> bool:
+    """仅当用户在问题中明确要求表格明细时保留 table。"""
+    return bool(_TABLE_DETAIL_PATTERN.search(query or ""))
+
+
+def wants_comprehensive_analysis(text: str) -> bool:
+    """用户明确要求多事件/全面/综合分析。"""
+    return bool(
+        re.search(r"综合|全面|整体|overview|comprehensive", text or "", re.IGNORECASE)
+    )
+
+
+def is_funnel_plan_payload(data: dict) -> bool:
+    if data.get("analysis_type") == "funnel":
+        return True
+    if data.get("dimension") == FUNNEL_STEP_DIMENSION:
+        return True
+    metrics = data.get("metrics") or []
+    if isinstance(metrics, list):
+        ids = {
+            str(m.get("id", ""))
+            for m in metrics
+            if isinstance(m, dict)
+        }
+        if {"user_count", "conversion_rate"}.issubset(ids):
+            return True
+    return False
+
+
 def order_funnel_csv_events(candidates: list[str]) -> list[str]:
-    """按常见转化顺序排列 CSV event 取值。"""
+    """对已给定的漏斗候选步骤排序；模板仅重排，不引入新事件。"""
     if not candidates:
         return []
     pool = {str(c).lower(): str(c) for c in candidates}
+    candidate_set = set(candidates)
     for template in _CSV_FUNNEL_ORDER_TEMPLATES:
         ordered = [pool[key] for key in template if key in pool]
-        if len(ordered) >= 2:
+        if len(ordered) >= 2 and set(ordered).issubset(candidate_set):
             extras = sorted(c for c in candidates if c not in ordered)
             return ordered + extras
     return sorted(candidates)
@@ -87,23 +209,15 @@ def infer_funnel_comparison_events(
     events_index: dict | None = None,
     query: str = "",
 ) -> list[str]:
-    """为漏斗分析推断有序 comparison_events（字典事件名）。"""
+    """为漏斗分析推断有序 comparison_events；仅使用计划已声明的步骤或 CSV 过滤。"""
     existing = data.get("comparison_events") or []
     if isinstance(existing, list) and len(existing) >= 2:
-        return [str(item) for item in existing]
+        return order_funnel_comparison_events([str(item) for item in existing])
 
     pool = set(csv_event_names or [])
     csv_filter = data.get("csv_event_filter") or []
     csv_candidates = [str(v) for v in csv_filter if str(v) in pool] if csv_filter else []
-    if len(csv_candidates) < 2:
-        module = str(data.get("matched_module") or "")
-        matched = str(data.get("matched_event") or "")
-        hint = f"{query} {module} {matched}".lower()
-        if "carlog" in hint:
-            csv_candidates = order_funnel_csv_events(
-                [e for e in pool if "carlog" in e.lower()]
-            )
-    else:
+    if csv_candidates:
         csv_candidates = order_funnel_csv_events(csv_candidates)
 
     if events_index and len(csv_candidates) >= 2:
@@ -123,11 +237,47 @@ def infer_funnel_comparison_events(
             except Exception:
                 continue
         if len(dict_events) >= 2:
-            return dict_events
+            return order_funnel_comparison_events(dict_events)
 
-    if "carlog" in f"{query} {data.get('matched_module', '')}".lower():
-        return list(_DEFAULT_CARLOG_FUNNEL_EVENTS)
-    return [str(item) for item in existing] if existing else []
+    return order_funnel_comparison_events([str(item) for item in existing]) if existing else []
+
+
+def repair_usage_retention_plan(
+    data: dict,
+    query: str,
+    *,
+    csv_event_names: list[str] | None = None,
+    events_index: dict | None = None,
+) -> dict:
+    """将「使用 1 次/2 次用户数」类问题纠正为 usage_retention，范围跟随 matched_event。"""
+    if not wants_usage_frequency_analysis(query):
+        return data
+
+    payload = dict(data)
+    payload["analysis_type"] = "usage_retention"
+    payload["dimension"] = USAGE_BUCKET_DIMENSION
+    payload["comparison_events"] = None
+
+    scope, canonical = _resolve_usage_csv_event_filter(
+        payload,
+        query,
+        csv_event_names=csv_event_names,
+        events_index=events_index,
+    )
+    if scope:
+        payload["csv_event_filter"] = scope
+    if canonical:
+        payload["matched_event"] = canonical
+
+    payload["metrics"] = [
+        {"id": "vehicle_count", "name": "车辆数", "type": "count"},
+    ]
+    visualization = dict(payload.get("visualization") or {})
+    visualization["chart_type"] = "bar"
+    visualization.setdefault("layout", "single")
+    visualization.setdefault("reasoning", "按 VIN 使用次数分桶统计车辆数")
+    payload["visualization"] = visualization
+    return payload
 
 
 def repair_funnel_analysis_plan(
@@ -137,8 +287,10 @@ def repair_funnel_analysis_plan(
     csv_event_names: list[str] | None = None,
     events_index: dict | None = None,
 ) -> dict:
-    """用户明确要漏斗时，纠正 LLM 误选 event_comparison/table 的计划。"""
-    if not wants_funnel_analysis(query):
+    """纠正漏斗分析计划：类型、步骤顺序、图表形态。"""
+    if wants_usage_frequency_analysis(query):
+        return data
+    if not wants_funnel_analysis(query) and not is_funnel_plan_payload(data):
         return data
 
     payload = dict(data)
@@ -152,11 +304,14 @@ def repair_funnel_analysis_plan(
         query=query,
     )
     if len(comparison) >= 2:
-        payload["comparison_events"] = comparison
+        payload["comparison_events"] = order_funnel_comparison_events(comparison)
 
     visualization = dict(payload.get("visualization") or {})
     chart_type = visualization.get("chart_type")
-    if not chart_type or chart_type in {"table", "bar", "multi_line", "stacked_bar"}:
+    if wants_funnel_table_detail(query):
+        if not chart_type:
+            visualization["chart_type"] = "table"
+    elif not chart_type or chart_type in {"table", "bar", "multi_line", "stacked_bar"}:
         visualization["chart_type"] = "funnel_chart"
     visualization.setdefault("layout", "single")
     visualization.setdefault("reasoning", "转化漏斗分析")
@@ -334,12 +489,12 @@ ANALYSIS_CATALOG: list[AnalysisTypeSpec] = [
     ),
     _spec(
         "usage_retention", "留存分桶",
-        "VIN 使用次数分桶为「使用1次」「使用2次」，统计各桶车辆数",
+        "VIN 使用次数分桶为「使用1次」至「使用10次」及「使用10次以上」，统计各桶车辆数",
         USAGE_BUCKET_DIMENSION,
         ["bar", "horizontal_bar", "pie", "table"],
         "bar",
-        "两桶对比用柱图；强调占比用饼图；精确数值用表格",
-        "count, id=vehicle_count", "Carlog使用1次和2次的车辆数",
+        "分桶对比用柱图；强调占比用饼图；精确数值用表格",
+        "count, id=vehicle_count", "Carlog各使用频次的车辆留存分布",
     ),
     _spec(
         "usage_distribution", "频次分布",
@@ -557,9 +712,12 @@ def build_analysis_catalog_prompt() -> str:
     return "\n".join(lines)
 
 
-def normalize_visualization_chart(plan: AnalysisPlan) -> AnalysisPlan:
+def normalize_visualization_chart(
+    plan: AnalysisPlan,
+    query: str = "",
+) -> AnalysisPlan:
     """校验并校正 chart_type，不在允许范围时回退到默认图表。"""
-    analysis_type = plan.analysis_type or infer_analysis_type(plan)
+    analysis_type = plan.analysis_type or infer_analysis_type(plan, query=query)
     spec = get_analysis_spec(analysis_type)
     if not spec:
         return plan
@@ -570,7 +728,7 @@ def normalize_visualization_chart(plan: AnalysisPlan) -> AnalysisPlan:
         if (
             analysis_type == "funnel"
             and chart_type == "table"
-            and not _TABLE_DETAIL_PATTERN.search(plan.visualization.reasoning or "")
+            and not wants_funnel_table_detail(query)
         ):
             visualization = plan.visualization.model_copy(
                 update={
@@ -635,14 +793,31 @@ def infer_analysis_type(plan: AnalysisPlan, query: str = "") -> AnalysisType:
     desc = plan.statistical_caliber.description
     combined = f"{query} {desc} {plan.dimension} {' '.join(m.name for m in plan.metrics)}"
 
+    if wants_usage_frequency_analysis(query):
+        return "usage_retention"
+
+    if wants_funnel_analysis(query):
+        if plan.comparison_events and len(plan.comparison_events) >= 2:
+            return "funnel"
+        if explicit := plan.analysis_type:
+            if explicit == "funnel":
+                return "funnel"
+
+    explicit = plan.analysis_type
+    if explicit and explicit in ANALYSIS_TYPE_IDS and explicit not in (
+        "funnel",
+        "event_comparison",
+    ):
+        return explicit  # type: ignore[return-value]
+
     if wants_funnel_analysis(combined):
         if plan.comparison_events and len(plan.comparison_events) >= 2:
             return "funnel"
         if plan.csv_event_filter and len(plan.csv_event_filter) >= 2:
             return "funnel"
 
-    if plan.analysis_type and plan.analysis_type in ANALYSIS_TYPE_IDS:
-        return plan.analysis_type  # type: ignore[return-value]
+    if explicit and explicit in ANALYSIS_TYPE_IDS:
+        return explicit  # type: ignore[return-value]
 
     if plan.comparison_events and len(plan.comparison_events) >= 2:
         if _FUNNEL_PATTERN.search(combined):
@@ -749,7 +924,7 @@ def normalize_plan_for_analysis(plan: AnalysisPlan, query: str = "") -> Analysis
         updates["top_n"] = 10
 
     plan = plan.model_copy(update=updates)
-    return normalize_visualization_chart(plan)
+    return normalize_visualization_chart(plan, query=query)
 
 
 def uses_derived_dimension(analysis_type: str) -> bool:

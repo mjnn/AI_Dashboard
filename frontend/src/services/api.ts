@@ -38,7 +38,7 @@ function apiUrl(path: string): string {
   return `${base}${normalized}`;
 }
 
-const REQUEST_TIMEOUT_MS = 120_000;
+const REQUEST_TIMEOUT_MS = 300_000;
 const UPLOAD_TIMEOUT_MS = 600_000;
 export const MAX_CSV_UPLOAD_BYTES = 200 * 1024 * 1024;
 
@@ -84,6 +84,20 @@ async function request<T>(
     if (!response.ok) {
       const message = await parseErrorBody(response);
       throw new ApiError(message, response.status);
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      const snippet = (await response.clone().text()).trimStart().slice(0, 80);
+      throw new ApiError(
+        snippet.startsWith("<!")
+          ? i18n.t("api.notJson", {
+              defaultValue:
+                "API 返回了 HTML 而非 JSON，请检查 VITE_API_BASE 与后端是否已启动",
+            })
+          : i18n.t("api.notJson", { defaultValue: "API 响应不是 JSON" }),
+        502
+      );
     }
 
     return (await response.json()) as T;

@@ -17,8 +17,14 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         "/api": {
-          target: "http://localhost:8000",
+          target: "http://127.0.0.1:8000",
           changeOrigin: true,
+        },
+        // 若误用生产 VITE_API_BASE 本地仍可代理
+        "/tools/ai-dashboard/api": {
+          target: "http://127.0.0.1:8000",
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/tools\/ai-dashboard/, ""),
         },
       },
     },

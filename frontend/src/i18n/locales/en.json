@@ -2,8 +2,7 @@
   "lang": {
     "label": "Language",
     "zh": "中文",
-    "en": "EN",
-    "de": "DE"
+    "en": "EN"
   },
   "app": {
     "defaultTitle": "AI Cockpit Event Analytics",

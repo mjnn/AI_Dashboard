@@ -35,7 +35,19 @@
 | 图表配色 | ChartThemePicker + localStorage 持久化 |
 | 事件映射 | LLM 必填 `csv_event_filter`；`event_mapping.repair_plan_event_adaptation` 规则兜底 |
 | 前端部署 | Nginx subpath `/tools/ai-dashboard/`，`.env.production` 固定 VITE_BASE |
-| ECS 交付 | Docker + compose @8011，ACR 镜像推送 |
+| ECS 交付 | Docker + compose @8011，ACR 镜像推送，CSV 宿主机 volume |
+
+### 1.4 v4.1 增量（2026-06-02）
+
+| 变更 | 说明 |
+|------|------|
+| **图表口径块** | `panel_caliber.py` + `PanelCaliberBlock`：图表构成 / 统计口径 / 分组规则 / 指标计算，21 类型全覆盖 |
+| **Agent 规划** | `analysis_agent.py`：意图→故事→可视化→可行性校验；`agent_payload_repair` 仅修 Schema |
+| **路由记忆** | `analysis_route_memory.py` 缓存相似 query 的分析路由（本地 JSON，不进 Git） |
+| **留存分桶** | `usage_retention` 固定 11 桶：使用1次…使用10次、使用10次以上（空桶补 0） |
+| **多事件分析** | 漏斗 / event_comparison 增强；`event_display` 本地化事件名 |
+| **测试收敛** | `test_analysis_coverage` / `test_analysis_performance` / `plan_factory` 场景库 |
+| **i18n** | 中/英界面；移除 de  locale |
 
 ---
 
@@ -58,7 +70,7 @@
 │  ├─ 数据层    load_data_pool / DictPreprocessor / dict_storage             │
 │  ├─ LLM 层    llm_planner / recommendation_service / dashboard_narrator    │
 │  ├─ 解析层    field_resolver / event_mapping / metadata_resolver           │
-│  ├─ 分析层    csv_processor / exploratory_analyzer / chart_builder         │
+│  ├─ 分析层    csv_processor / exploratory_analyzer / chart_builder / panel_caliber │
 │  └─ 管理层    csv_storage / dict_tester                                    │
 └─────────┬──────────────────┬───────────────────────┬────────────────────────┘
           │                  │                       │
@@ -143,7 +155,7 @@ sequenceDiagram
    - `precise`：始终单图；
    - `exploratory`：批量可行分析；
    - `auto`：`intent_confidence=low` 或用户笼统提问 → 探索，否则单图。
-7. **聚合与出图**（`csv_processor` + `chart_builder`）：按 `analysis_type` 注册表执行确定性聚合，**不由 LLM 写 SQL/代码**。
+7. **聚合与出图**（`csv_processor` + `chart_builder` + `panel_caliber`）：按注册表确定性聚合；`ChartConfig.caliber_detail` 含图表构成与指标说明。
 8. **看板叙事**（`dashboard_narrator`，LLM 第二次调用）：为多面板生成 headline、分区、副标题；失败则规则兜底。
 
 ### 3.2 LLM 参与点总览
@@ -151,7 +163,7 @@ sequenceDiagram
 | 阶段 | 模块 | LLM 输入 | LLM 输出 | 失败策略 |
 |------|------|----------|----------|----------|
 | 智能推荐 | `recommendation_service` | 数据画像 + 分析 catalog | 4–6 条推荐问题 | 规则 fallback |
-| 分析计划 | `llm_planner` | 用户 query + 白名单 + CSV/字典提示 | `AnalysisPlan` JSON | 502 + 校验错误信息 |
+| 分析计划 | `llm_planner` / `analysis_agent` | 用户 query + 白名单 + CSV/字典提示 | `AnalysisPlan` JSON | 502 + 校验错误 |
 | 映射修复 | `event_mapping` | （规则，非 LLM） | 补全 `csv_event_filter` | — |
 | 看板叙事 | `dashboard_narrator` | 各 panel 摘要 + plan | presentation JSON | 规则 fallback |
 
@@ -304,6 +316,8 @@ line, area, multi_line, dual_axis, bar, horizontal_bar, stacked_bar, pie, table,
 | **InputPanel** | 自然语言输入、三档模式、LLM 推荐 |
 | **Dashboard** | 单图 + presentation |
 | **ExploratoryDashboard** | 多面板分区布局 |
+| **PanelCaliberBlock** | 图表构成 / 口径 / 分组规则 / 指标计算 |
+| **AnalysisPanelCard** | 单面板卡片 + 口径块 |
 | **DataManagementPage** | CSV + 字典双 Tab |
 | **DictionaryPanel** | 树状字典 + 搜索 |
 | **DictionaryEventEditor** | 编辑 + 测试匹配 + 保存 |
@@ -321,6 +335,8 @@ line, area, multi_line, dual_axis, bar, horizontal_bar, stacked_bar, pie, table,
 
 ```bash
 cd backend && python -m pytest tests/test_integration.py::TestApiNoLlm -q
+cd backend && python -m pytest tests/test_chart_builder_caliber.py -q
+cd backend && python -m pytest tests/test_analysis_coverage.py -k "not llm" -q
 cd frontend && npm run build
 ```
 
@@ -347,7 +363,13 @@ cd frontend && npm run build
 | `backend/services/llm_planner.py` | **LLM 分析计划** |
 | `backend/services/event_mapping.py` | 字典↔CSV 映射与计划修复 |
 | `backend/services/field_resolver.py` | 事件/字段解析 |
-| `backend/services/csv_processor.py` | 数据池与聚合 |
+| `backend/services/csv_processor.py` | 数据池与聚合（留存分桶 1–10+） |
+| `backend/services/panel_caliber.py` | **图表口径与构成说明** |
+| `backend/services/analysis_agent.py` | Agent 多轮分析规划 |
+| `backend/services/analysis_route_memory.py` | 分析路由缓存 |
+| `backend/services/agent_payload_repair.py` | Agent JSON schema 修复 |
+| `backend/services/data_feasibility.py` | 可视化提案可行性校验 |
+| `frontend/src/components/PanelCaliberBlock.tsx` | 口径展开 UI |
 | `backend/services/exploratory_analyzer.py` | 探索模式 |
 | `backend/services/dashboard_narrator.py` | **LLM 看板叙事** |
 | `backend/services/recommendation_service.py` | **LLM 推荐** |
@@ -371,17 +393,21 @@ cd frontend && npm run build
 
 ---
 
-## 11. 交付清单（v4.0）
+## 11. 交付清单（v4.1）
 
 - [x] 自然语言分析主流程 + 字典↔CSV 双轨映射
-- [x] 数据池 + 前端 CSV 上传
+- [x] 数据池 + 前端 CSV 上传 + ECS CSV volume
 - [x] 数据管理页 + 字典树状编辑 + 边测边改
-- [x] 图表配色主题
+- [x] 图表配色主题 + i18n（中/英）
 - [x] LLM 推荐 + 计划 + 看板叙事
+- [x] Agent 规划 + 可行性校验 + 路由记忆
+- [x] **PanelCaliberBlock 全类型口径说明**
+- [x] **usage_retention 11 桶（1–10 + 10次以上）**
+- [x] 分析覆盖/性能测试收敛脚本
 - [x] ECS Docker 部署 + Nginx subpath
 - [x] GitHub 同步
-- [x] 规格文档 v4.0
+- [x] 规格文档 v4.0 / 进度 PROGRESS.md
 
 ---
 
-*v4.0 取代 v3.0 中与实现不一致的部分；以仓库代码、测试与线上部署为准。*
+*v4.1 在 v4.0 基础上增量；以仓库代码、测试与线上部署为准。*

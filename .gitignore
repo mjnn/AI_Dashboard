@@ -1,3 +1,7 @@
+# Runtime / local
+backend/data/analysis_route_cache/
+frontend/.env.development
+
 # Environment & secrets
 .env
 backend/.env

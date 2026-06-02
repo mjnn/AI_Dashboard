@@ -183,11 +183,11 @@ def _default_metrics(analysis_type: str) -> List[MetricDef]:
     templates: dict[str, List[MetricDef]] = {
         "time_series": [
             MetricDef(id="pv", name="触发次数", type="count"),
-            MetricDef(id="uv", name="独立车辆", type="nunique", field="vin_code"),
+            MetricDef(id="uv", name="按车去重", type="nunique", field="vin_code"),
         ],
         "summary_kpi": [
             MetricDef(id="pv", name="触发次数", type="count"),
-            MetricDef(id="uv", name="独立车辆", type="nunique", field="vin_code"),
+            MetricDef(id="uv", name="按车去重", type="nunique", field="vin_code"),
         ],
         "usage_retention": [
             MetricDef(id="vehicle_count", name="车辆数", type="count"),
@@ -211,7 +211,7 @@ def _default_metrics(analysis_type: str) -> List[MetricDef]:
             MetricDef(id="uv", name="活跃用户", type="nunique", field="vin_code"),
         ],
         "growth_rate": [
-            MetricDef(id="uv", name="独立车辆", type="nunique", field="vin_code"),
+            MetricDef(id="uv", name="按车去重", type="nunique", field="vin_code"),
         ],
         "stickiness": [
             MetricDef(id="stickiness", name="粘性(%)", type="count"),
@@ -253,11 +253,15 @@ def _default_visualization(analysis_type: str) -> VisualizationDef:
 
 def _default_caliber(seed: AnalysisPlan, analysis_type: str) -> StatisticalCaliber:
     spec = ANALYSIS_SPEC_BY_ID.get(analysis_type)
-    name = spec["name"] if spec else analysis_type
+    if spec:
+        description = spec["description"]
+    else:
+        name = analysis_type
+        description = f"探索性分析：{name}（{seed.matched_event}）"
     return StatisticalCaliber(
         dedup_method=seed.statistical_caliber.dedup_method,
         time_granularity=seed.statistical_caliber.time_granularity,
-        description=f"探索性分析：{name}（{seed.matched_event}）",
+        description=description,
     )
 
 
@@ -382,7 +386,17 @@ def run_exploratory_analysis(
                 events_index=events_index,
             )
             records = _df_to_records(data_df)
-            chart_config = build(sub_plan, records)
+            display_plan = sub_plan
+            if event_filter_override:
+                display_plan = sub_plan.model_copy(
+                    update={"csv_event_filter": sorted(event_filter_override)}
+                )
+            chart_config = build(
+                display_plan,
+                records,
+                events_index=events_index,
+                locale=locale,
+            )
         except Exception:
             continue
 
@@ -420,6 +434,7 @@ def run_exploratory_analysis(
         query or seed_plan.matched_event,
         scope_event_count=len(event_filter_override) if event_filter_override else 1,
         locale=locale,
+        events_index=events_index,
     )
     panels = apply_presentation_to_panels(panels, presentation)
 

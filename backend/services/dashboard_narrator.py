@@ -15,6 +15,7 @@ from schemas.analysis import (
     PanelNarration,
 )
 from services.analysis_registry import ANALYSIS_SPEC_BY_ID
+from services.event_display import display_name_for_event_ref, localized_plan_event_title
 from services.locale import locale_instruction
 from services.llm_planner import (
     AnalysisPlanError,
@@ -101,8 +102,18 @@ def _summarize_chart_data(config: ChartConfig) -> dict[str, Any]:
     return summary
 
 
-def _summarize_panel(panel: AnalysisPanel) -> dict[str, Any]:
+def _summarize_panel(
+    panel: AnalysisPanel,
+    *,
+    events_index: dict | None = None,
+    locale: str | None = None,
+) -> dict[str, Any]:
     spec = ANALYSIS_SPEC_BY_ID.get(panel.analysis_type, {})
+    display_event = display_name_for_event_ref(
+        panel.plan.matched_event,
+        events_index,
+        locale=locale,
+    )
     return {
         "panel_id": panel.panel_id,
         "analysis_type": panel.analysis_type,
@@ -111,6 +122,7 @@ def _summarize_panel(panel: AnalysisPanel) -> dict[str, Any]:
         "layout_hint": panel.layout,
         "current_title": panel.name,
         "event": panel.plan.matched_event,
+        "display_event": display_event,
         "data_stats": _summarize_chart_data(panel.chart_config),
     }
 
@@ -123,10 +135,14 @@ def _build_narrator_prompt(
     scope_event_count: int = 1,
     depth_insights: Optional[List[str]] = None,
     analysis_angles: Optional[List[str]] = None,
+    events_index: dict | None = None,
+    locale: str | None = None,
 ) -> str:
     import json
 
-    panel_briefs = [_summarize_panel(p) for p in panels]
+    panel_briefs = [
+        _summarize_panel(p, events_index=events_index, locale=locale) for p in panels
+    ]
     panel_json = json.dumps(panel_briefs, ensure_ascii=False, indent=2)
     scope_line = plan.scope_label or plan.matched_event
     if scope_event_count > 1:
@@ -179,7 +195,10 @@ def _build_narrator_prompt(
 ## 约束
 - panel_ids 必须覆盖且仅覆盖上述全部 panel_id，不可遗漏或编造
 - 每个 panel_id 在 panels 数组中恰好出现一次
-- 文案用中文为主，可少量英文点缀；数字可引用 data_stats
+- **每个 panel 的 title 必须互不相同**；禁止多个图复用同一句模板（例如三图都叫「日趋势：声量随时间如何起伏」）
+- panel_id 以 `event-` 开头的是单事件趋势：title **必须**包含该面板的 display_event 具体事件名
+- display_event 已是**简短别名**（非字典全文），请直接使用，勿扩写括号说明
+- 文案用用户所选语言；**禁止**在 title/subtitle 中直接写 hu_ 英文 CSV 代号或字典超长全名
 - 只输出 JSON，格式如下：
 
 {{
@@ -262,9 +281,87 @@ def _validate_presentation(
     )
 
 
+def _panel_fallback_subtitle(
+    panel: AnalysisPanel,
+    *,
+    events_index: dict | None = None,
+    locale: str | None = None,
+) -> str:
+    """规则兜底：每张图一句与自身分析类型/数据相关的说明，避免复用 plan 统计口径。"""
+    analysis_type = panel.analysis_type or ""
+    event_label = display_name_for_event_ref(
+        panel.plan.matched_event,
+        events_index,
+        locale=locale,
+    )
+    reasoning = (panel.plan.visualization.reasoning or "").strip()
+    stats = _summarize_chart_data(panel.chart_config)
+    metrics = stats.get("metrics") or {}
+
+    def _metric_hint(key: str, unit: str = "次") -> str | None:
+        block = metrics.get(key)
+        if not isinstance(block, dict):
+            return None
+        avg = block.get("avg")
+        peak = block.get("max")
+        if avg is None and peak is None:
+            return None
+        if peak is not None and avg is not None:
+            return f"峰值约 {peak}{unit}，日均约 {avg}{unit}"
+        if peak is not None:
+            return f"峰值约 {peak}{unit}"
+        return f"日均约 {avg}{unit}"
+
+    if analysis_type == "funnel":
+        return "漏斗各步骤的到达车辆数与相邻步骤转化率"
+    if analysis_type == "event_comparison":
+        if panel.plan.sub_dimension:
+            hint = _metric_hint("pv") or _metric_hint("count")
+            base = "各步骤/事件随时间的触发走势对比"
+            return f"{base}；{hint}" if hint else base
+        return "各相关事件的触发次数与按车去重 UV 对比"
+    if analysis_type == "time_series" or panel.panel_id.startswith("event-"):
+        hint = _metric_hint("pv") or _metric_hint("uv", "辆")
+        base = f"{event_label} 的日触发与 UV 走势"
+        return f"{base}；{hint}" if hint else base
+    if reasoning:
+        return reasoning[:120]
+    spec = ANALYSIS_SPEC_BY_ID.get(analysis_type, {})
+    return str(spec.get("name") or panel.name or analysis_type)
+
+
+def _panel_fallback_title(
+    panel: AnalysisPanel,
+    vivid_titles: dict[str, str],
+    *,
+    events_index: dict | None = None,
+    locale: str | None = None,
+) -> str:
+    if panel.panel_id.startswith("event-"):
+        return localized_plan_event_title(
+            panel.plan,
+            events_index,
+            locale=locale,
+            suffix="日趋势",
+        )
+    if panel.name and panel.name.strip() and panel.name != vivid_titles.get(
+        panel.analysis_type
+    ):
+        return panel.name
+    if panel.chart_config.title:
+        return panel.chart_config.title
+    return vivid_titles.get(
+        panel.analysis_type or "",
+        panel.name or panel.analysis_type or "分析图表",
+    )
+
+
 def _fallback_presentation(
     panels: List[AnalysisPanel],
     plan: AnalysisPlan,
+    *,
+    events_index: dict | None = None,
+    locale: str | None = None,
 ) -> DashboardPresentation:
     """LLM 不可用时的规则兜底分类与标题。"""
     groups: dict[str, list[str]] = {
@@ -273,6 +370,7 @@ def _fallback_presentation(
         "half": [],
     }
     narrations: list[PanelNarration] = []
+    used_titles: set[str] = set()
 
     vivid_titles = {
         "summary_kpi": "先抓大放小：核心 KPI 一屏读完",
@@ -303,15 +401,33 @@ def _fallback_presentation(
         else:
             groups["half"].append(panel.panel_id)
 
-        base = vivid_titles.get(
-            panel.analysis_type,
-            panel.name or panel.analysis_type,
+        base = _panel_fallback_title(
+            panel,
+            vivid_titles,
+            events_index=events_index,
+            locale=locale,
         )
+        title = base
+        if title in used_titles:
+            event_label = display_name_for_event_ref(
+                panel.plan.matched_event,
+                events_index,
+                locale=locale,
+            )
+            if event_label and event_label not in title:
+                title = f"{event_label} · {base}"
+            else:
+                title = f"{base}（{panel.panel_id}）"
+        used_titles.add(title)
         narrations.append(
             PanelNarration(
                 panel_id=panel.panel_id,
-                title=base,
-                subtitle=panel.plan.statistical_caliber.description[:80],
+                title=title,
+                subtitle=_panel_fallback_subtitle(
+                    panel,
+                    events_index=events_index,
+                    locale=locale,
+                ),
                 tag="核心 KPI" if panel.layout == "kpi" else None,
             )
         )
@@ -407,6 +523,8 @@ def generate_dashboard_presentation(
     depth_insights: Optional[List[str]] = None,
     analysis_angles: Optional[List[str]] = None,
     locale: str | None = None,
+    events_index: dict | None = None,
+    use_llm: bool = True,
 ) -> DashboardPresentation:
     """调用 LLM 生成看板分类与生动文案；失败时回退规则兜底。"""
     if not panels:
@@ -417,12 +535,19 @@ def generate_dashboard_presentation(
             panels=[],
         )
 
+    if not use_llm or len(panels) > 8:
+        return _fallback_presentation(
+            panels, plan, events_index=events_index, locale=locale
+        )
+
     panel_ids = {p.panel_id for p in panels}
 
     try:
         client = _create_client()
     except MissingApiKeyError:
-        return _fallback_presentation(panels, plan)
+        return _fallback_presentation(
+            panels, plan, events_index=events_index, locale=locale
+        )
 
     system_prompt = _build_narrator_prompt(
         panels,
@@ -431,6 +556,8 @@ def generate_dashboard_presentation(
         scope_event_count=scope_event_count,
         depth_insights=depth_insights,
         analysis_angles=analysis_angles,
+        events_index=events_index,
+        locale=locale,
     ) + locale_instruction(locale)
 
     try:
@@ -446,14 +573,20 @@ def generate_dashboard_presentation(
     except Exception as exc:
         if isinstance(exc, LLMApiError):
             raise
-        return _fallback_presentation(panels, plan)
+        return _fallback_presentation(
+            panels, plan, events_index=events_index, locale=locale
+        )
 
     if not response.choices:
-        return _fallback_presentation(panels, plan)
+        return _fallback_presentation(
+            panels, plan, events_index=events_index, locale=locale
+        )
 
     raw_output = response.choices[0].message.content or ""
     try:
         data = _parse_llm_json(raw_output)
         return _validate_presentation(data, raw_output, panel_ids)
     except AnalysisPlanError:
-        return _fallback_presentation(panels, plan)
+        return _fallback_presentation(
+            panels, plan, events_index=events_index, locale=locale
+        )

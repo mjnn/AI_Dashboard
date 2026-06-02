@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-AppLocale = Literal["zh", "en", "de"]
+AppLocale = Literal["zh", "en"]
 DEFAULT_LOCALE: AppLocale = "zh"
 
 _INSTRUCTIONS: dict[AppLocale, str] = {
@@ -15,10 +15,6 @@ _INSTRUCTIONS: dict[AppLocale, str] = {
     "en": (
         "All user-facing text (titles, summaries, insights, cluster names, "
         "recommendation reasons, chart titles, etc.) must be in English."
-    ),
-    "de": (
-        "Alle nutzerorientierten Texte (Titel, Zusammenfassungen, Erkenntnisse, "
-        "Cluster-Namen, Empfehlungsgründe, Diagrammtitel usw.) müssen auf Deutsch sein."
     ),
 }
 
@@ -35,4 +31,4 @@ def normalize_locale(value: str | None) -> AppLocale:
 
 def locale_instruction(locale: str | None) -> str:
     code = normalize_locale(locale)
-    return f"\n\n## Language / 语言 / Sprache\n{_INSTRUCTIONS[code]}\n"
+    return f"\n\n## Language / 语言\n{_INSTRUCTIONS[code]}\n"

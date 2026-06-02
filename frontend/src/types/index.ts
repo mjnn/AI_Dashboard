@@ -218,6 +218,19 @@ export interface ExecutionSummary {
   execution_time_ms: number;
 }
 
+/** 单图面板结构化统计口径 */
+export interface PanelCaliberDetail {
+  description: string;
+  dedup_method: string;
+  time_granularity: string;
+  events: string[];
+  formulas: string[];
+  /** 衍生维度分组规则，如新老用户如何划分 */
+  grouping_rules?: string[];
+  /** 图表如何绘制：横纵轴、系列、阅读方式 */
+  chart_layout?: string[];
+}
+
 /** ECharts 图表配置 */
 export interface ChartConfig {
   /** 图表类型 */
@@ -238,6 +251,8 @@ export interface ChartConfig {
   data: Record<string, unknown>[];
   /** 口径说明文本列表，供前端展示 */
   calibers: string[];
+  /** 结构化口径：统计说明、使用事件、计算公式 */
+  caliber_detail?: PanelCaliberDetail;
 }
 
 /** 分析 API 响应 */

@@ -58,7 +58,7 @@ def _format_profile_for_prompt(profile: dict[str, Any]) -> str:
         )
         lines.append(f"- 事件: {event_text}")
     if "unique_vins" in profile:
-        lines.append(f"- 独立车辆(VIN): {profile['unique_vins']}")
+        lines.append(f"- 按车去重(VIN): {profile['unique_vins']}")
     if "usage_per_vin" in profile:
         up = profile["usage_per_vin"]
         lines.append(

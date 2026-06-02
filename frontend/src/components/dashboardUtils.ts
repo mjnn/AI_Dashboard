@@ -26,10 +26,18 @@ export function sectionGridClass(layout: DashboardSection["layout"]): string {
 
 export function fallbackSections(response: AnalysisResponse): DashboardSection[] {
   const panels = response.panels ?? [];
+  const isPerEventPanel = (id: string) => id.startsWith("event-");
   const kpi = panels.filter((p) => p.layout === "kpi").map((p) => p.panel_id);
   const wide = panels.filter((p) => p.layout === "wide").map((p) => p.panel_id);
+  const perEvent = panels
+    .filter((p) => isPerEventPanel(p.panel_id))
+    .map((p) => p.panel_id);
   const half = panels
-    .filter((p) => p.layout === "half" || p.layout === "compact")
+    .filter(
+      (p) =>
+        (p.layout === "half" || p.layout === "compact") &&
+        !isPerEventPanel(p.panel_id)
+    )
     .map((p) => p.panel_id);
 
   const sections: DashboardSection[] = [];
@@ -49,6 +57,15 @@ export function fallbackSections(response: AnalysisResponse): DashboardSection[]
       subtitle: "时间轴上的变化与起伏",
       panel_ids: wide,
       layout: "wide_grid",
+    });
+  }
+  if (perEvent.length) {
+    sections.push({
+      id: "per-event",
+      title: "分事件趋势 / Per Event",
+      subtitle: "范围内每个埋点单独的时间序列",
+      panel_ids: perEvent,
+      layout: "half_grid",
     });
   }
   if (half.length) {

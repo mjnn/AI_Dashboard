@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional, Set
+from typing import List, Literal, Optional, Set
+
+ScopeMode = Literal["single_event", "event_list", "module", "comprehensive"]
 
 _LATIN_TOKEN = re.compile(r"[a-zA-Z][a-zA-Z0-9_]*")
 
@@ -192,6 +194,109 @@ def infer_prefix_group_from_anchor(
         if str(name).lower() == prefix or str(name).lower().startswith(f"{prefix}_")
     }
     return group if len(group) >= 2 else set(anchor_labels)
+
+
+def _canonicals_for_scope(
+    scope: Set[str],
+    matched_event: str,
+    matched_module: str | None,
+    events_index: dict,
+    csv_event_names: List[str],
+) -> List[str]:
+    canonicals: List[str] = []
+    module = matched_module or events_index.get("events", {}).get(matched_event, {}).get(
+        "module", ""
+    )
+    if module:
+        from services.field_resolver import _csv_labels_for_event
+
+        for canonical in canonical_events_for_module(
+            module, events_index, csv_event_names
+        ):
+            labels = set(_csv_labels_for_event(events_index, canonical, csv_event_names))
+            if labels & scope:
+                canonicals.append(canonical)
+
+    if len(canonicals) < 2:
+        from services.field_resolver import _lookup_in_index
+
+        for label in sorted(scope):
+            canonical = _lookup_in_index(events_index, label)
+            if canonical and canonical not in canonicals:
+                canonicals.append(canonical)
+            elif not canonical and label not in canonicals:
+                canonicals.append(label)
+
+    return canonicals
+
+
+def expand_event_scope(
+    *,
+    scope_mode: ScopeMode = "comprehensive",
+    matched_event: str,
+    matched_module: str | None,
+    csv_event_filter: List[str] | None,
+    query: str,
+    events_index: dict,
+    csv_event_names: List[str],
+    max_module_events: int = 20,
+) -> tuple[Set[str], List[str]]:
+    """
+    按 scope_mode 扩展分析范围。
+    single_event：仅 matched_event 对应 CSV；
+    event_list：仅 plan/字典给出的列表；
+    module / comprehensive：见各分支（comprehensive 为最全策略）。
+    """
+    from services.event_mapping import infer_csv_filter_for_canonical, sanitize_csv_event_filter
+
+    if scope_mode == "single_event":
+        labels = infer_csv_filter_for_canonical(
+            matched_event, events_index, csv_event_names
+        )
+        scope = set(labels)
+        return scope, [matched_event] if matched_event else []
+
+    if scope_mode == "event_list":
+        scope: Set[str] = set()
+        if csv_event_filter:
+            scope.update(sanitize_csv_event_filter(csv_event_filter, csv_event_names))
+        if not scope:
+            scope.update(
+                infer_csv_filter_for_canonical(matched_event, events_index, csv_event_names)
+            )
+        return scope, _canonicals_for_scope(
+            scope, matched_event, matched_module, events_index, csv_event_names
+        )
+
+    if scope_mode == "module":
+        module = matched_module or events_index.get("events", {}).get(matched_event, {}).get(
+            "module", ""
+        )
+        scope = (
+            csv_labels_for_module(module, events_index, csv_event_names)
+            if module
+            else set()
+        )
+        if not scope:
+            scope.update(
+                infer_csv_filter_for_canonical(matched_event, events_index, csv_event_names)
+            )
+        canonicals = (
+            canonical_events_for_module(module, events_index, csv_event_names)
+            if module
+            else ([matched_event] if matched_event else [])
+        )
+        return scope, canonicals
+
+    return expand_comprehensive_event_scope(
+        matched_event=matched_event,
+        matched_module=matched_module,
+        csv_event_filter=csv_event_filter,
+        query=query,
+        events_index=events_index,
+        csv_event_names=csv_event_names,
+        max_module_events=max_module_events,
+    )
 
 
 def expand_comprehensive_event_scope(

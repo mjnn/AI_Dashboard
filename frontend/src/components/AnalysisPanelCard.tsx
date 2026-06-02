@@ -1,5 +1,7 @@
 import type { AnalysisPanel, PanelNarration } from "../types";
 import ChartRouter from "./charts/ChartRouter";
+import { resolvePanelChartType } from "./chartTypeUtils";
+import PanelCaliberBlock from "./PanelCaliberBlock";
 
 interface AnalysisPanelCardProps {
   panel: AnalysisPanel;
@@ -31,7 +33,11 @@ export default function AnalysisPanelCard({
   narration,
   embedded = false,
 }: AnalysisPanelCardProps) {
-  const chartType = panel.plan.visualization.chart_type;
+  const chartType = resolvePanelChartType({
+    analysis_type: panel.analysis_type,
+    plan_chart_type: panel.plan.visualization.chart_type,
+    config_chart_type: panel.chart_config.chart_type,
+  });
   const isKpi = panel.layout === "kpi";
   const kpiValue = isKpi ? extractKpiValue(panel) : null;
   const title = narration?.title ?? panel.name;
@@ -39,13 +45,16 @@ export default function AnalysisPanelCard({
 
   if (isKpi && kpiValue) {
     return (
-      <article className="kpi-card">
+      <article className="kpi-card flex flex-col">
         <p className="kpi-value">{kpiValue}</p>
         <p className="kpi-sub">{title}</p>
         {subtitle && <p className="mt-1 text-[11px] text-dash-mut">{subtitle}</p>}
         {narration?.tag && (
           <span className="kpi-tag kpi-tag-core">{narration.tag}</span>
         )}
+        <div className="mt-auto">
+          <PanelCaliberBlock plan={panel.plan} chartConfig={panel.chart_config} compact />
+        </div>
       </article>
     );
   }
@@ -76,6 +85,8 @@ export default function AnalysisPanelCard({
           hideTitle
         />
       </div>
+
+      <PanelCaliberBlock plan={panel.plan} chartConfig={panel.chart_config} />
     </article>
   );
 }

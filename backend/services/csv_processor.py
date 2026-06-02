@@ -36,9 +36,38 @@ _EVENT_PATTERNS = re.compile(r"event|事件", re.IGNORECASE)
 _WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 _VIN_CANDIDATES = ["vin_code", "vin", "vehicle_vin", "VIN"]
 
+_pool_cache: tuple[str, pd.DataFrame] | None = None
 
-def _normalize_col(name: str) -> str:
-    return re.sub(r"[\s_\-]+", "", name.lower())
+
+def invalidate_data_pool_cache() -> None:
+    """CSV 数据池变更后调用，使 load_data_pool 重新读盘。"""
+    global _pool_cache
+    _pool_cache = None
+
+
+def load_data_pool(*, force_reload: bool = False) -> pd.DataFrame:
+    """读取 CSV_DATA_PATH 目录下全部 CSV 并合并为分析用 DataFrame（进程内按 mtime 缓存）。"""
+    global _pool_cache
+    from config import ConfigError, data_pool_cache_key, list_csv_files, resolve_csv_data_dir
+
+    cache_key = data_pool_cache_key()
+    if not force_reload and _pool_cache is not None and _pool_cache[0] == cache_key:
+        return _pool_cache[1]
+
+    csv_dir = resolve_csv_data_dir()
+    files = list_csv_files()
+    if not files:
+        raise ConfigError(
+            f"数据目录为空: {csv_dir}，请将 CSV 文件放入该目录（CSV_DATA_PATH）"
+        )
+
+    frames = [_read_csv_with_encoding(str(csv_dir / item["filename"])) for item in files]
+    if len(frames) == 1:
+        df = frames[0]
+    else:
+        df = pd.concat(frames, ignore_index=True, sort=False)
+    _pool_cache = (cache_key, df)
+    return df
 
 
 def _read_csv_with_encoding(csv_path: str) -> pd.DataFrame:
@@ -53,21 +82,8 @@ def _read_csv_with_encoding(csv_path: str) -> pd.DataFrame:
     return pd.read_csv(csv_path)
 
 
-def load_data_pool() -> pd.DataFrame:
-    """读取 CSV_DATA_PATH 目录下全部 CSV 并合并为分析用 DataFrame。"""
-    from config import ConfigError, list_csv_files, resolve_csv_data_dir
-
-    csv_dir = resolve_csv_data_dir()
-    files = list_csv_files()
-    if not files:
-        raise ConfigError(
-            f"数据目录为空: {csv_dir}，请将 CSV 文件放入该目录（CSV_DATA_PATH）"
-        )
-
-    frames = [_read_csv_with_encoding(str(csv_dir / item["filename"])) for item in files]
-    if len(frames) == 1:
-        return frames[0]
-    return pd.concat(frames, ignore_index=True, sort=False)
+def _normalize_col(name: str) -> str:
+    return re.sub(r"[\s_\-]+", "", name.lower())
 
 
 def _find_column(
@@ -353,7 +369,20 @@ def _usage_bucket_label(count: int) -> str:
     return f"使用{count}次"
 
 
+def _usage_retention_bucket_label(count: int) -> str:
+    if count <= 10:
+        return f"使用{count}次"
+    return "使用10次以上"
+
+
+_USAGE_RETENTION_BUCKETS: tuple[str, ...] = tuple(
+    f"使用{i}次" for i in range(1, 11)
+) + ("使用10次以上",)
+
+
 def _usage_count_from_bucket_label(label: str) -> int:
+    if label == "使用10次以上":
+        return 11
     match = re.match(r"使用(\d+)次", str(label))
     return int(match.group(1)) if match else 0
 
@@ -375,17 +404,25 @@ def _aggregate_usage_buckets(
 ) -> pd.DataFrame:
     """按 VIN 使用次数分桶，统计各桶内车辆数（留存/频次分析）。"""
     usage = df.groupby(vin_col).size().reset_index(name="_usage_count")
-    usage["_bucket"] = usage["_usage_count"].map(_usage_bucket_label)
-
     if retention_only:
-        usage = usage[usage["_usage_count"].isin([1, 2])]
+        usage["_bucket"] = usage["_usage_count"].map(_usage_retention_bucket_label)
+    else:
+        usage["_bucket"] = usage["_usage_count"].map(_usage_bucket_label)
 
     bucket_counts = (
         usage.groupby("_bucket").size().reset_index(name="_vehicle_count")
     )
-    bucket_order = usage.drop_duplicates(subset="_bucket").set_index("_bucket")["_usage_count"]
-    bucket_counts["_sort"] = bucket_counts["_bucket"].map(bucket_order)
-    bucket_counts = bucket_counts.sort_values("_sort")
+    if retention_only:
+        bucket_counts = (
+            bucket_counts.set_index("_bucket")
+            .reindex(list(_USAGE_RETENTION_BUCKETS), fill_value=0)
+            .reset_index()
+        )
+        bucket_counts["_sort"] = range(1, len(_USAGE_RETENTION_BUCKETS) + 1)
+    else:
+        bucket_order = usage.drop_duplicates(subset="_bucket").set_index("_bucket")["_usage_count"]
+        bucket_counts["_sort"] = bucket_counts["_bucket"].map(bucket_order)
+        bucket_counts = bucket_counts.sort_values("_sort")
     bucket_counts = bucket_counts.rename(columns={"_bucket": plan.dimension})
     metric_id = plan.metrics[0].id if plan.metrics else "vehicle_count"
     result = bucket_counts.rename(columns={"_vehicle_count": metric_id})
@@ -461,9 +498,30 @@ def _event_match_values(plan: AnalysisPlan, event_def: Optional[dict]) -> set[st
     return expanded
 
 
-def _collect_event_filter_values(plan: AnalysisPlan, event_def: Optional[dict]) -> set[str]:
+def _collect_event_filter_values(
+    plan: AnalysisPlan,
+    event_def: Optional[dict],
+    *,
+    events_index: dict | None = None,
+    csv_event_names: List[str] | None = None,
+) -> set[str]:
     if plan.csv_event_filter:
         return {str(v) for v in plan.csv_event_filter}
+    if (
+        plan.analysis_type == "funnel"
+        and plan.comparison_events
+        and events_index
+        and csv_event_names
+    ):
+        from services.event_mapping import infer_csv_filter_for_comparison
+
+        csv_vals = infer_csv_filter_for_comparison(
+            [str(e) for e in plan.comparison_events],
+            events_index,
+            csv_event_names,
+        )
+        if csv_vals:
+            return set(csv_vals)
     if is_multi_event_analysis(plan.analysis_type or "") and plan.comparison_events:
         values: set[str] = set()
         for event_name in plan.comparison_events:
@@ -610,28 +668,19 @@ def _aggregate_cohort_retention(
     return result
 
 
-def _aggregate_funnel(
+def _funnel_step_value_sets(
+    steps: list[str],
     df: pd.DataFrame,
     event_col: str,
-    vin_col: str,
-    plan: AnalysisPlan,
+    pool_values: set[str],
     *,
-    events_index: dict | None = None,
-    csv_event_names: List[str] | None = None,
-) -> pd.DataFrame:
+    events_index: dict | None,
+    csv_event_names: List[str] | None,
+) -> list[tuple[str, set[str]]]:
     from services.event_mapping import resolve_event_csv_values
 
-    steps = plan.comparison_events or [plan.matched_event]
-    if len(steps) < 2:
-        steps = [plan.matched_event, *(plan.comparison_events or [])]
-
-    pool_values = set(df[event_col].astype(str))
-    metric_count = "user_count"
-    metric_rate = "conversion_rate"
-    rows: List[dict] = []
-    prev_count = 0
-
-    for idx, step in enumerate(steps):
+    resolved: list[tuple[str, set[str]]] = []
+    for step in steps:
         if events_index and csv_event_names:
             step_values = resolve_event_csv_values(
                 str(step),
@@ -641,13 +690,122 @@ def _aggregate_funnel(
             )
         else:
             step_values = _event_name_variants(step) & pool_values
-        if not step_values:
-            continue
-        step_df = df[df[event_col].astype(str).isin(step_values)]
-        count = step_df[vin_col].nunique()
-        rate = 100.0 if idx == 0 else (round(count / prev_count * 100, 2) if prev_count else 0.0)
+        if step_values:
+            resolved.append((str(step), step_values))
+    return resolved
+
+
+def _cumulative_funnel_counts(
+    df: pd.DataFrame,
+    event_col: str,
+    vin_col: str,
+    step_defs: list[tuple[str, set[str]]],
+) -> list[int]:
+    """无有效时间戳时：按步骤集合交集统计（完成前 N 步的车辆数）。"""
+    n_steps = len(step_defs)
+    counts = [0] * n_steps
+    if n_steps == 0:
+        return counts
+
+    step_vins: list[set[str]] = []
+    for _, step_values in step_defs:
+        mask = df[event_col].astype(str).isin(step_values)
+        step_vins.append(set(df.loc[mask, vin_col].astype(str)))
+
+    cumulative = step_vins[0].copy() if step_vins else set()
+    for idx in range(n_steps):
+        if idx > 0:
+            cumulative &= step_vins[idx]
+        counts[idx] = len(cumulative)
+    return counts
+
+
+def _sequential_funnel_counts(
+    df: pd.DataFrame,
+    event_col: str,
+    vin_col: str,
+    step_defs: list[tuple[str, set[str]]],
+    *,
+    time_col: str | None,
+) -> list[int]:
+    """按时间顺序统计各步到达车辆数（完成 Step1→Step2→… 子序列）。"""
+    n_steps = len(step_defs)
+    counts = [0] * n_steps
+    if n_steps == 0:
+        return counts
+
+    use_time = False
+    if time_col and time_col in df.columns:
+        parsed = _parsed_time_series(df, time_col)
+        use_time = parsed is not None and parsed.notna().any()
+
+    if not use_time:
+        return _cumulative_funnel_counts(df, event_col, vin_col, step_defs)
+
+    working = df[[vin_col, event_col]].copy()
+    working["_parsed_time"] = _parsed_time_series(df, time_col)
+    working = working.dropna(subset=["_parsed_time"])
+    working = working.sort_values([vin_col, "_parsed_time"])
+
+    for _, group in working.groupby(vin_col, sort=False):
+        depth = 0
+        for _, row in group.iterrows():
+            if depth >= n_steps:
+                break
+            event_val = str(row[event_col])
+            if event_val in step_defs[depth][1]:
+                depth += 1
+        for i in range(depth):
+            counts[i] += 1
+    return counts
+
+
+def _aggregate_funnel(
+    df: pd.DataFrame,
+    event_col: str,
+    vin_col: str,
+    plan: AnalysisPlan,
+    *,
+    events_index: dict | None = None,
+    csv_event_names: List[str] | None = None,
+    time_col: str | None = None,
+) -> pd.DataFrame:
+    steps = plan.comparison_events or [plan.matched_event]
+    if len(steps) < 2:
+        steps = [plan.matched_event, *(plan.comparison_events or [])]
+
+    pool_values = set(df[event_col].astype(str))
+    step_defs = _funnel_step_value_sets(
+        [str(s) for s in steps],
+        df,
+        event_col,
+        pool_values,
+        events_index=events_index,
+        csv_event_names=csv_event_names,
+    )
+    if len(step_defs) < 2:
+        return pd.DataFrame()
+
+    metric_count = "user_count"
+    metric_rate = "conversion_rate"
+    step_counts = _sequential_funnel_counts(
+        df,
+        event_col,
+        vin_col,
+        step_defs,
+        time_col=time_col,
+    )
+    rows: List[dict] = []
+    prev_count = 0
+    for idx, (label, _) in enumerate(step_defs):
+        count = step_counts[idx]
+        rate = (
+            100.0
+            if idx == 0
+            else (round(count / prev_count * 100, 2) if prev_count else 0.0)
+        )
         rows.append({
-            plan.dimension: f"Step{idx + 1}: {step}",
+            plan.dimension: f"Step{idx + 1}: {label}",
             metric_count: count,
             metric_rate: rate,
         })
@@ -896,7 +1054,13 @@ def process_csv(
             if matched is None and metric.field not in unavailable_dimensions:
                 unavailable_dimensions.append(metric.field)
 
-    event_values = _collect_event_filter_values(plan, event_def)
+    pool_csv_names = sorted({str(v) for v in df[event_col].astype(str)})
+    event_values = _collect_event_filter_values(
+        plan,
+        event_def,
+        events_index=events_index,
+        csv_event_names=pool_csv_names,
+    )
     if event_filter_override:
         event_values = event_filter_override
     event_filtered = df[df[event_col].astype(str).isin(event_values)].copy()
@@ -907,7 +1071,7 @@ def process_csv(
         full_event_df = event_filtered.copy()
 
     filtered = event_filtered.copy()
-    if time_col and not filtered.empty:
+    if time_col and not filtered.empty and analysis_type != "funnel":
         filtered = _apply_time_filter(filtered, time_col, plan)
 
     for field_name, col_name in plan.filters.items():
@@ -1015,6 +1179,7 @@ def process_csv(
             plan,
             events_index=events_index,
             csv_event_names=sorted({str(v) for v in df[event_col].astype(str)}) if event_col else None,
+            time_col=time_col,
         )
 
     elif analysis_type == "event_comparison":

@@ -38,6 +38,30 @@ class StatisticalCaliber(BaseModel):
     )
 
 
+class PanelCaliberDetail(BaseModel):
+    """单张图表面板的统计口径、事件与公式（供卡片展示）。"""
+
+    description: str = Field(description="本图统计口径自然语言描述")
+    dedup_method: str = Field(description="去重方式")
+    time_granularity: str = Field(description="时间聚合粒度")
+    events: List[str] = Field(
+        default_factory=list,
+        description="本图使用的展示事件名（已本地化/缩短）",
+    )
+    formulas: List[str] = Field(
+        default_factory=list,
+        description="本图指标计算公式说明",
+    )
+    grouping_rules: List[str] = Field(
+        default_factory=list,
+        description="衍生维度或分桶的分组判定规则（如新老用户如何划分）",
+    )
+    chart_layout: List[str] = Field(
+        default_factory=list,
+        description="图表如何绘制：横纵轴、系列含义、阅读方式",
+    )
+
+
 class VisualizationDef(BaseModel):
     """可视化选型。"""
 
@@ -151,6 +175,12 @@ class AnalysisPlan(BaseModel):
         default=None,
         description="多事件分析范围展示名（后端填充）",
     )
+    scope_mode: Optional[Literal["single_event", "event_list", "module", "comprehensive"]] = (
+        Field(
+            default=None,
+            description="Agent 判定的事件范围策略；缺省时由 analysis_intent 从 query fallback",
+        )
+    )
 
 
 class AnalyzeRequest(BaseModel):
@@ -161,9 +191,13 @@ class AnalyzeRequest(BaseModel):
         default="auto",
         description="分析模式：auto 智能 / precise 精准单图 / exploratory 探索全量",
     )
-    locale: Literal["zh", "en", "de"] = Field(
+    locale: Literal["zh", "en"] = Field(
         default="zh",
         description="界面与 LLM 面向用户文案的语言",
+    )
+    force_fresh: bool = Field(
+        default=False,
+        description="为 true 时跳过分析路线缓存，走完整 Agent 规划",
     )
 
 
@@ -197,6 +231,9 @@ class ChartConfig(BaseModel):
     )
     data: List[dict] = Field(description="聚合后的图表数据")
     calibers: List[str] = Field(description="口径说明文本列表，供前端展示")
+    caliber_detail: PanelCaliberDetail = Field(
+        description="结构化口径：统计说明、使用事件、计算公式"
+    )
 
 
 class AnalysisPanel(BaseModel):
@@ -278,6 +315,10 @@ class AnalysisResponse(BaseModel):
     depth_insights: Optional[List[str]] = Field(
         default=None,
         description="LLM 场景深度挖掘建议",
+    )
+    agent_trace: Optional[dict] = Field(
+        default=None,
+        description="Agent 规划轨迹（意图→字典→故事→可视化校验循环），调试用",
     )
 
 

@@ -1,6 +1,5 @@
 import type { AnalysisResponse } from "../types";
 import AnalysisPanelCard from "./AnalysisPanelCard";
-import CaliberCard from "./CaliberCard";
 import SummaryBar from "./SummaryBar";
 import {
   buildNarrationMap,
@@ -38,7 +37,6 @@ export default function ExploratoryDashboard({ response }: ExploratoryDashboardP
         </div>
       )}
 
-      <CaliberCard plan={response.plan} />
       <SummaryBar execution={response.execution} />
 
       {sections.map((section, index) => {

@@ -2,8 +2,7 @@
   "lang": {
     "label": "语言",
     "zh": "中文",
-    "en": "EN",
-    "de": "DE"
+    "en": "EN"
   },
   "app": {
     "defaultTitle": "AI 座舱埋点看板",

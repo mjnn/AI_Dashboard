@@ -22,11 +22,20 @@ export default function FunnelChart({ config, hideTitle = false }: FunnelChartPr
     name: formatAxisLabel(row[config.x_axis_key]) || labels[index] || `Step ${index + 1}`,
     value: Number(row[valueKey] ?? 0),
     itemStyle: { color: colorAt(colors, index) },
+    conversionRate: row.conversion_rate,
   }));
 
   const option = {
     color: colors,
-    tooltip: { trigger: "item" as const, formatter: "{b}: {c}" },
+    tooltip: {
+      trigger: "item" as const,
+      formatter: (params: { name: string; value: number; data?: { conversionRate?: number } }) => {
+        const rate = params.data?.conversionRate;
+        const rateText =
+          rate != null && !Number.isNaN(Number(rate)) ? `<br/>步间转化率: ${rate}%` : "";
+        return `${params.name}: ${params.value} 辆${rateText}`;
+      },
+    },
     series: [
       {
         type: "funnel" as const,

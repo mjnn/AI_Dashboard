@@ -1,7 +1,6 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
-import de from "./locales/de.json";
 import en from "./locales/en.json";
 import zh from "./locales/zh.json";
 import { LOCALE_STORAGE_KEY, normalizeLocale, type AppLocale } from "./types";
@@ -17,7 +16,6 @@ void i18n.use(initReactI18next).init({
   resources: {
     zh: { translation: zh },
     en: { translation: en },
-    de: { translation: de },
   },
   lng: initial,
   fallbackLng: "zh",

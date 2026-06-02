@@ -1,8 +1,9 @@
 import type { AnalysisResponse } from "../types";
-import CaliberCard from "./CaliberCard";
 import ExploratoryDashboard from "./ExploratoryDashboard";
 import SummaryBar from "./SummaryBar";
 import ChartRouter from "./charts/ChartRouter";
+import { resolvePanelChartType } from "./chartTypeUtils";
+import PanelCaliberBlock from "./PanelCaliberBlock";
 
 interface DashboardProps {
   response: AnalysisResponse;
@@ -29,7 +30,6 @@ function SingleDashboard({ response }: DashboardProps) {
         </div>
       )}
 
-      <CaliberCard plan={plan} />
       <SummaryBar execution={execution} />
 
       <section className="dash-section">
@@ -57,10 +57,15 @@ function SingleDashboard({ response }: DashboardProps) {
           <div className="chart-embed">
             <ChartRouter
               config={config}
-              chartType={plan.visualization.chart_type}
+              chartType={resolvePanelChartType({
+                analysis_type: plan.analysis_type,
+                plan_chart_type: plan.visualization.chart_type,
+                config_chart_type: config.chart_type,
+              })}
               hideTitle
             />
           </div>
+          <PanelCaliberBlock plan={plan} chartConfig={config} />
         </div>
       </section>
 
@@ -84,7 +89,10 @@ function SingleDashboard({ response }: DashboardProps) {
 }
 
 export default function Dashboard({ response }: DashboardProps) {
-  if (response.mode === "exploratory" && response.panels && response.panels.length > 0) {
+  const usePanelGrid =
+    (response.mode === "exploratory" || response.mode === "comprehensive") &&
+    Boolean(response.panels?.length);
+  if (usePanelGrid) {
     return <ExploratoryDashboard response={response} />;
   }
   return <SingleDashboard response={response} />;

@@ -38,7 +38,7 @@ export default function LineChart({ config, withArea = true, hideTitle = false }
     series: seriesMeta.map((item) => ({
       name: item.name,
       type: "line" as const,
-      smooth: true,
+      smooth: false,
       symbol: "circle",
       symbolSize: 6,
       data: getSeriesData(config, item.key),

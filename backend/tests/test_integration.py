@@ -30,6 +30,9 @@ from services.field_resolver import resolve_event, resolve_column_name  # noqa: 
 from services.analysis_registry import (  # noqa: E402
     normalize_plan_for_analysis,
     repair_funnel_analysis_plan,
+    repair_usage_retention_plan,
+    wants_usage_frequency_analysis,
+    infer_analysis_type,
 )
 from services.llm_planner import repair_plan_llm_payload  # noqa: E402
 from schemas.analysis import AnalysisPlan  # noqa: E402
@@ -230,7 +233,7 @@ class TestPlanLlmRepair(unittest.TestCase):
                 ],
                 "metrics": [
                     {"id": "pv", "name": "触发次数", "type": "count"},
-                    {"id": "uv", "name": "独立车辆", "type": "nunique", "field": "vin_code"},
+                    {"id": "uv", "name": "按车去重", "type": "nunique", "field": "vin_code"},
                 ],
                 "visualization": {
                     "chart_type": "table",
@@ -255,6 +258,193 @@ class TestPlanLlmRepair(unittest.TestCase):
         self.assertGreaterEqual(len(payload["comparison_events"]), 2)
         plan = AnalysisPlan.model_validate(payload)
         self.assertEqual(plan.visualization.chart_type, "funnel_chart")
+
+    def test_usage_frequency_not_treated_as_funnel(self):
+        query = "我想看进入carlog1次和2次的用户数"
+        self.assertTrue(wants_usage_frequency_analysis(query))
+        funnel_like = {
+            "analysis_type": "funnel",
+            "matched_event": "Carlog_进入",
+            "matched_module": "Carlog",
+            "match_confidence": "high",
+            "csv_event_filter": [
+                "carlog_entry",
+                "carlog_record",
+                "carlog_autocut",
+                "carlog_exit",
+            ],
+            "comparison_events": ["Carlog_进入", "Carlog_录制", "Carlog_退出"],
+            "metrics": [
+                {"id": "user_count", "name": "到达车辆数", "type": "count"},
+                {"id": "conversion_rate", "name": "步间转化率(%)", "type": "count"},
+            ],
+            "visualization": {
+                "chart_type": "funnel_chart",
+                "layout": "single",
+                "reasoning": "漏斗",
+            },
+            "dimension": "漏斗步骤",
+            "filters": {},
+            "time_range": {"type": "last_n_days", "value": 30},
+            "statistical_caliber": {
+                "dedup_method": "按VIN去重",
+                "time_granularity": "daily",
+                "description": "carlog漏斗",
+            },
+        }
+        repaired = repair_plan_llm_payload(
+            funnel_like,
+            query=query,
+            csv_event_names=self.csv_events,
+            events_index=self.index,
+        )
+        self.assertEqual(repaired["analysis_type"], "usage_retention")
+        self.assertEqual(repaired["dimension"], "使用次数分组")
+        # 范围来自 matched_event=Carlog_进入 的字典映射，而非 query 关键词
+        self.assertEqual(repaired["csv_event_filter"], ["carlog_entry"])
+        self.assertIsNone(repaired.get("comparison_events"))
+        plan = AnalysisPlan.model_validate(repaired)
+        self.assertEqual(plan.analysis_type, "usage_retention")
+        self.assertEqual(plan.visualization.chart_type, "bar")
+        self.assertEqual(infer_analysis_type(plan, query=query), "usage_retention")
+
+    def test_usage_scope_follows_matched_event_not_query_keyword(self):
+        """导航进入类问题不应被 query 里的「进入」误导到 carlog_entry。"""
+        from unittest.mock import patch
+
+        from services.field_resolver import EventResolution, virtual_event_def
+
+        query = "我想看导航进入1次和2次的用户数"
+        nav_event = "用户发起导航（包括算路进入导航、poi详情快速导航、生态域发起导航、消息中心发起导航、SOA触发导航、日程日历发起导航等所有由非导航进入导航的场景）"
+        nav_labels = ("hu_navi_route_start",)
+
+        with patch("services.field_resolver.resolve_event") as mock_resolve:
+            mock_resolve.return_value = EventResolution(
+                event_name=nav_event,
+                event_def=virtual_event_def(nav_labels[0]),
+                match_method="dict",
+                csv_labels=nav_labels,
+            )
+            repaired = repair_usage_retention_plan(
+                {
+                    "analysis_type": "funnel",
+                    "matched_event": nav_event,
+                    "csv_event_filter": [
+                        "carlog_entry",
+                        "carlog_record",
+                        "carlog_exit",
+                    ],
+                    "comparison_events": ["Carlog_进入", "Carlog_退出"],
+                },
+                query,
+                csv_event_names=list(self.csv_events) + [nav_labels[0]],
+                events_index=self.index,
+            )
+
+        self.assertEqual(repaired["csv_event_filter"], [nav_labels[0]])
+        self.assertNotIn("carlog_entry", repaired["csv_event_filter"])
+        mock_resolve.assert_called()
+        call_matched = mock_resolve.call_args[0][0]
+        self.assertEqual(call_matched, nav_event)
+
+    def test_repair_funnel_skipped_for_usage_frequency(self):
+        query = "carlog使用1次和2次的车辆数"
+        payload = repair_funnel_analysis_plan(
+            {"analysis_type": "funnel", "comparison_events": ["A", "B"]},
+            query,
+            csv_event_names=self.csv_events,
+            events_index=self.index,
+        )
+        self.assertEqual(payload["analysis_type"], "funnel")
+        payload = repair_usage_retention_plan(
+            payload,
+            query,
+            csv_event_names=self.csv_events,
+            events_index=self.index,
+        )
+        self.assertEqual(payload["analysis_type"], "usage_retention")
+
+
+class TestMultiEventPlans(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.index = DictPreprocessor(EVENTS_DICT_PATH).index
+        cls.csv_events = list_distinct_csv_events(load_data_pool())
+
+    def test_infer_type_keeps_time_series_under_funnel_query(self):
+        from schemas.analysis import (
+            AnalysisPlan,
+            MetricDef,
+            StatisticalCaliber,
+            TimeRange,
+            VisualizationDef,
+        )
+        from services.analysis_registry import infer_analysis_type
+
+        plan = AnalysisPlan(
+            analysis_type="time_series",
+            matched_event="Carlog_进入",
+            matched_module="Carlog",
+            match_confidence="high",
+            csv_event_filter=["carlog_entry", "carlog_record", "carlog_exit"],
+            metrics=[MetricDef(id="pv", name="PV", type="count")],
+            visualization=VisualizationDef(
+                chart_type="line", layout="single", reasoning="单事件趋势"
+            ),
+            dimension="date",
+            filters={},
+            time_range=TimeRange(type="last_n_days", value=30),
+            statistical_caliber=StatisticalCaliber(
+                dedup_method="按VIN去重",
+                time_granularity="daily",
+                description="test",
+            ),
+        )
+        self.assertEqual(
+            infer_analysis_type(plan, "看看carlog漏斗"),
+            "time_series",
+        )
+
+    def test_build_per_event_plans(self):
+        from schemas.analysis import (
+            AnalysisPlan,
+            MetricDef,
+            StatisticalCaliber,
+            TimeRange,
+            VisualizationDef,
+        )
+        from services.multi_event_analysis import build_per_event_plans
+
+        seed = AnalysisPlan(
+            analysis_type="event_comparison",
+            matched_event="Carlog_进入",
+            matched_module="Carlog",
+            match_confidence="high",
+            metrics=[MetricDef(id="pv", name="PV", type="count")],
+            visualization=VisualizationDef(
+                chart_type="bar", layout="single", reasoning="test"
+            ),
+            dimension="event",
+            filters={},
+            time_range=TimeRange(type="last_n_days", value=30),
+            statistical_caliber=StatisticalCaliber(
+                dedup_method="按VIN去重",
+                time_granularity="daily",
+                description="test",
+            ),
+        )
+        scope = {"carlog_entry", "carlog_record", "carlog_exit"}
+        plans, _scopes = build_per_event_plans(
+            seed,
+            scope,
+            events_index=self.index,
+            csv_event_names=self.csv_events,
+            query="综合分析一下carlog",
+        )
+        self.assertEqual(len(plans), 3)
+        for plan in plans:
+            self.assertEqual(plan.analysis_type, "time_series")
+            self.assertEqual(plan.visualization.chart_type, "line")
 
 
 class TestEventClusterRepair(unittest.TestCase):
@@ -333,6 +523,73 @@ class TestProcessCsv(unittest.TestCase):
             "Carlog_进入", cls.index, csv_event_names=cls.csv_events, query=""
         ).event_def
 
+    def test_funnel_comparison_events_reordered(self):
+        shuffled = [
+            "Carlog_主动录制",
+            "Carlog_进入",
+            "Carlog_编辑次数",
+            "Carlog_退出",
+        ]
+        payload = repair_funnel_analysis_plan(
+            {
+                "analysis_type": "event_comparison",
+                "matched_event": "Carlog_进入",
+                "comparison_events": shuffled,
+                "csv_event_filter": ["carlog_entry", "carlog_record", "carlog_video_edit", "carlog_exit"],
+                "visualization": {"chart_type": "bar", "layout": "single", "reasoning": "test"},
+                "statistical_caliber": {
+                    "dedup_method": "按VIN去重",
+                    "time_granularity": "daily",
+                    "description": "漏斗",
+                },
+            },
+            "分析carlog漏斗",
+            csv_event_names=self.csv_events,
+            events_index=self.index,
+        )
+        steps = payload["comparison_events"]
+        self.assertEqual(steps[0], "Carlog_进入")
+        self.assertIn("Carlog_主动录制", steps)
+        self.assertEqual(steps[-1], "Carlog_退出")
+        self.assertEqual(payload["visualization"]["chart_type"], "funnel_chart")
+
+    def test_funnel_query_not_usage_retention(self):
+        from services.analysis_registry import infer_analysis_type, order_funnel_comparison_events
+        from schemas.analysis import AnalysisPlan, MetricDef, StatisticalCaliber, TimeRange, VisualizationDef
+
+        self.assertEqual(
+            infer_analysis_type(
+                AnalysisPlan(
+                    analysis_type="usage_retention",
+                    matched_event="Carlog_进入",
+                    matched_module="Carlog",
+                    match_confidence="high",
+                    comparison_events=["Carlog_进入", "Carlog_主动录制"],
+                    metrics=[
+                        MetricDef(id="user_count", name="到达车辆数", type="count"),
+                        MetricDef(id="conversion_rate", name="步间转化率(%)", type="count"),
+                    ],
+                    visualization=VisualizationDef(
+                        chart_type="funnel_chart", layout="single", reasoning="漏斗"
+                    ),
+                    dimension="漏斗步骤",
+                    filters={},
+                    time_range=TimeRange(type="last_n_days", value=30),
+                    statistical_caliber=StatisticalCaliber(
+                        dedup_method="按VIN去重",
+                        time_granularity="daily",
+                        description="从首次使用到二次使用的转化",
+                    ),
+                ),
+                "分析carlog漏斗",
+            ),
+            "funnel",
+        )
+        ordered = order_funnel_comparison_events(
+            ["Carlog_编辑次数", "Carlog_进入", "Carlog_主动录制"]
+        )
+        self.assertEqual(ordered[0], "Carlog_进入")
+
     def test_funnel_process_csv_shape(self):
         from schemas.analysis import AnalysisPlan, TimeRange, StatisticalCaliber, VisualizationDef, MetricDef
 
@@ -365,6 +622,96 @@ class TestProcessCsv(unittest.TestCase):
         self.assertFalse(data_df.empty)
         self.assertIn("user_count", data_df.columns)
         self.assertEqual(plan.visualization.chart_type, "funnel_chart")
+
+    def test_funnel_table_reasoning_uses_funnel_chart(self):
+        from schemas.analysis import (
+            AnalysisPlan,
+            MetricDef,
+            StatisticalCaliber,
+            TimeRange,
+            VisualizationDef,
+        )
+
+        plan = AnalysisPlan(
+            analysis_type="funnel",
+            matched_event="Carlog_进入",
+            matched_module="Carlog",
+            match_confidence="high",
+            comparison_events=["carlog_entry", "carlog_record", "carlog_exit"],
+            metrics=[
+                MetricDef(id="user_count", name="到达车辆数", type="count"),
+                MetricDef(id="conversion_rate", name="步间转化率(%)", type="count"),
+            ],
+            visualization=VisualizationDef(
+                chart_type="table",
+                layout="single",
+                reasoning="用表格展示漏斗步骤明细",
+            ),
+            dimension="漏斗步骤",
+            filters={},
+            time_range=TimeRange(type="last_n_days", value=30),
+            statistical_caliber=StatisticalCaliber(
+                dedup_method="按VIN去重",
+                time_granularity="daily",
+                description="漏斗",
+            ),
+        )
+        normalized = normalize_plan_for_analysis(plan, query="看看carlog漏斗")
+        self.assertEqual(normalized.visualization.chart_type, "funnel_chart")
+
+    def test_sequential_funnel_conversion_rates_bounded(self):
+        from schemas.analysis import (
+            AnalysisPlan,
+            MetricDef,
+            StatisticalCaliber,
+            TimeRange,
+            VisualizationDef,
+        )
+
+        plan = AnalysisPlan(
+            analysis_type="funnel",
+            matched_event="Carlog_进入",
+            matched_module="Carlog",
+            match_confidence="high",
+            comparison_events=[
+                "carlog_entry",
+                "carlog_record",
+                "carlog_autocut",
+                "carlog_video_edit",
+                "carlog_exit",
+            ],
+            metrics=[
+                MetricDef(id="user_count", name="到达车辆数", type="count"),
+                MetricDef(id="conversion_rate", name="步间转化率(%)", type="count"),
+            ],
+            visualization=VisualizationDef(
+                chart_type="funnel_chart",
+                layout="single",
+                reasoning="漏斗",
+            ),
+            dimension="漏斗步骤",
+            filters={},
+            time_range=TimeRange(type="last_n_days", value=30),
+            statistical_caliber=StatisticalCaliber(
+                dedup_method="按VIN去重",
+                time_granularity="daily",
+                description="漏斗",
+            ),
+        )
+        plan = normalize_plan_for_analysis(plan, query="carlog漏斗")
+        data_df, _ = process_csv(
+            plan,
+            self.event_def,
+            df=self.df,
+            events_index=self.index,
+        )
+        rates = list(data_df["conversion_rate"])
+        self.assertEqual(rates[0], 100.0)
+        for rate in rates[1:]:
+            self.assertLessEqual(rate, 100.0)
+        counts = list(data_df["user_count"])
+        for i in range(1, len(counts)):
+            self.assertLessEqual(counts[i], counts[i - 1])
 
     def _minimal_plan(self):
         from schemas.analysis import (
@@ -496,6 +843,57 @@ class TestProcessCsv(unittest.TestCase):
         numeric_order = [_usage_count_from_bucket_label(label) for label in labels]
         self.assertEqual(numeric_order, sorted(numeric_order))
         self.assertEqual(labels[:2], ["使用1次", "使用2次"])
+
+    def test_usage_retention_buckets_one_to_ten_plus(self):
+        from schemas.analysis import (
+            AnalysisPlan,
+            MetricDef,
+            StatisticalCaliber,
+            TimeRange,
+            VisualizationDef,
+        )
+        from services.csv_processor import (
+            _USAGE_RETENTION_BUCKETS,
+            _aggregate_usage_buckets,
+        )
+
+        plan = AnalysisPlan(
+            analysis_type="usage_retention",
+            matched_event="Carlog_进入",
+            matched_module="Carlog",
+            match_confidence="high",
+            metrics=[MetricDef(id="vehicle_count", name="车辆数", type="count")],
+            visualization=VisualizationDef(
+                chart_type="bar",
+                layout="single",
+                reasoning="test",
+            ),
+            dimension="使用次数分组",
+            filters={},
+            time_range=TimeRange(type="last_n_days", value=30),
+            statistical_caliber=StatisticalCaliber(
+                dedup_method="按VIN去重",
+                time_granularity="daily",
+                description="test",
+            ),
+        )
+        df = pd.DataFrame(
+            {
+                "vin_code": ["v1"] * 1 + ["v2"] * 5 + ["v3"] * 10 + ["v4"] * 11,
+                "event": ["carlog_entry"] * 27,
+            }
+        )
+        result = _aggregate_usage_buckets(
+            df, "vin_code", plan, retention_only=True
+        )
+        labels = result["使用次数分组"].tolist()
+        self.assertEqual(labels, list(_USAGE_RETENTION_BUCKETS))
+        counts = dict(zip(labels, result["vehicle_count"].tolist()))
+        self.assertEqual(counts["使用1次"], 1)
+        self.assertEqual(counts["使用5次"], 1)
+        self.assertEqual(counts["使用10次"], 1)
+        self.assertEqual(counts["使用10次以上"], 1)
+        self.assertEqual(counts["使用3次"], 0)
 
 
 class TestTimeParse(unittest.TestCase):

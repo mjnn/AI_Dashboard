@@ -1,4 +1,4 @@
-export const SUPPORTED_LOCALES = ["zh", "en", "de"] as const;
+export const SUPPORTED_LOCALES = ["zh", "en"] as const;
 export type AppLocale = (typeof SUPPORTED_LOCALES)[number];
 
 export const LOCALE_STORAGE_KEY = "ai-dashboard-locale";
