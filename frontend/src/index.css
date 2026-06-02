@@ -1,0 +1,176 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg0: #f4f7fb;
+  --bg1: #eef2f7;
+  --bg-mid: #e8edf4;
+  --mesh1: rgba(56, 189, 248, 0.14);
+  --mesh2: rgba(167, 139, 250, 0.12);
+  --glass: rgba(255, 255, 255, 0.82);
+  --glass-hover: rgba(255, 255, 255, 0.94);
+  --line: rgba(15, 23, 42, 0.1);
+  --txt: #0f172a;
+  --txt2: #1e293b;
+  --mut: #64748b;
+  --mut2: #94a3b8;
+  --cyan: #0891b2;
+  --vio: #7c3aed;
+  --emerald: #059669;
+  --amber: #d97706;
+  --rose: #e11d48;
+  --radius: 14px;
+}
+
+@keyframes fadeUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bgShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply antialiased;
+    font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    color: var(--txt);
+    background:
+      radial-gradient(ellipse 100% 55% at 12% -5%, var(--mesh1), transparent 52%),
+      radial-gradient(ellipse 85% 50% at 88% 5%, var(--mesh2), transparent 48%),
+      linear-gradient(180deg, var(--bg0) 0%, var(--bg-mid) 45%, var(--bg1) 100%);
+    background-size: 100% 100%, 100% 100%, 100% 200%;
+    animation: bgShift 12s ease infinite;
+    min-height: 100vh;
+  }
+}
+
+@layer components {
+  .dash-top {
+    @apply sticky top-0 z-[200] flex flex-wrap items-center gap-x-6 gap-y-3 border-b px-6 py-3;
+    background: rgba(248, 250, 252, 0.88);
+    backdrop-filter: blur(14px);
+    border-color: var(--line);
+  }
+
+  .dash-title {
+    @apply m-0 text-lg font-extrabold;
+    background: linear-gradient(90deg, var(--cyan), var(--vio));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .dash-meta {
+    @apply text-xs;
+    color: var(--mut);
+  }
+
+  .dash-section {
+    @apply mb-7 scroll-mt-[72px];
+    animation: fadeUp 0.5s ease both;
+  }
+
+  .sec-head {
+    @apply mb-3.5 flex flex-wrap items-end gap-3;
+  }
+
+  .sec-head h2 {
+    @apply m-0 text-xl font-bold;
+    color: var(--txt2);
+  }
+
+  .sec-head p {
+    @apply m-0 min-w-[180px] flex-1 text-sm;
+    color: var(--mut);
+  }
+
+  .sec-highlight {
+    @apply text-xs font-semibold;
+    color: var(--cyan);
+  }
+
+  .glass-panel {
+    background: var(--glass);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+  }
+
+  .glass-panel:hover {
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.07);
+  }
+
+  .kpi-card {
+    @apply px-4 py-4 text-center;
+    background: var(--glass);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    backdrop-filter: blur(10px);
+    transition: transform 0.3s, box-shadow 0.3s;
+  }
+
+  .kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+  }
+
+  .kpi-value {
+    @apply m-0 text-3xl font-extrabold tracking-tight;
+    color: var(--txt2);
+  }
+
+  .kpi-sub {
+    @apply mt-1 text-xs;
+    color: var(--mut2);
+  }
+
+  .kpi-tag {
+    @apply mt-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold;
+  }
+
+  .kpi-tag-core {
+    @apply bg-emerald-100 text-emerald-800;
+  }
+
+  .kpi-tag-neutral {
+    @apply bg-blue-100 text-blue-800;
+  }
+
+  .narrative-banner {
+    @apply glass-panel px-5 py-4;
+  }
+
+  .chart-embed {
+    @apply overflow-hidden rounded-xl;
+  }
+
+  .chart-embed .glass-panel {
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    backdrop-filter: none;
+  }
+}
