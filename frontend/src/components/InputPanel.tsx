@@ -134,7 +134,7 @@ export default function InputPanel({
   return (
     <div
       ref={panelRef}
-      className={`glass-panel relative p-5 ${showRecommendations ? "z-50" : ""}`}
+      className={`glass-panel relative p-5 ${showRecommendations ? "z-50 mb-80" : "z-30"}`}
     >
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="flex gap-3">
@@ -186,7 +186,7 @@ export default function InputPanel({
       </form>
 
       {showRecommendations && (
-        <div className="absolute left-0 right-0 top-full z-[100] mt-2 max-h-80 overflow-y-auto rounded-xl border border-slate-200/90 bg-white/95 shadow-2xl backdrop-blur-md">
+        <div className="absolute left-0 right-0 top-full z-[300] mt-2 max-h-80 overflow-y-auto rounded-xl border border-slate-200/90 bg-white/95 shadow-2xl backdrop-blur-md">
           <div className="sticky top-0 border-b border-gray-100 bg-gray-50 px-4 py-2.5">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs font-medium text-gray-700">智能分析推荐</p>
