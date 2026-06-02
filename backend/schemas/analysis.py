@@ -1,6 +1,6 @@
 """分析请求与响应 Schema。"""
 
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -315,6 +315,111 @@ class CsvFilesResponse(BaseModel):
     )
     files: List[CsvFileInfo] = Field(description="目录下全部 CSV 文件")
     total: int = Field(description="文件总数")
+
+
+class CsvUploadResponse(BaseModel):
+    """CSV 上传结果。"""
+
+    filename: str = Field(description="保存后的文件名")
+    size_bytes: int = Field(description="文件大小（字节）")
+    message: str = Field(description="提示信息")
+    pool: CsvFilesResponse = Field(description="上传后的数据池文件列表")
+
+
+class DictionaryEventSummary(BaseModel):
+    """字典树中的事件摘要。"""
+
+    name: str
+    data_id: str = ""
+    condition: str = ""
+
+
+class DictionaryModuleNode(BaseModel):
+    """字典树模块节点。"""
+
+    name: str
+    events: List[DictionaryEventSummary]
+
+
+class DictionaryTreeResponse(BaseModel):
+    """埋点字典树形结构。"""
+
+    source: str = ""
+    description: str = ""
+    modules: List[DictionaryModuleNode]
+    total_events: int
+
+
+class EventAttributeDesc(BaseModel):
+    """属性值枚举项。"""
+
+    code: Optional[int] = None
+    label: Optional[str] = None
+
+
+class EventAttribute(BaseModel):
+    """事件属性定义。"""
+
+    事件的属性: str
+    属性中文说明: str = ""
+    属性值的描述: Optional[Any] = None
+
+
+class DictionaryEventDetail(BaseModel):
+    """单个事件的完整字典定义。"""
+
+    module: str
+    event: dict = Field(description="原始事件 JSON（事件/属性列表等）")
+
+
+class DictionaryEventUpdate(BaseModel):
+    """更新事件字典字段。"""
+
+    事件触发条件: Optional[str] = None
+    事件Data_ID: Optional[str] = None
+    属性列表: Optional[List[EventAttribute]] = None
+
+
+class DictionaryEventUpdateResponse(BaseModel):
+    """事件更新结果。"""
+
+    event_name: str
+    message: str
+    event: dict
+    total_events: int
+
+
+class DictionaryLabelStat(BaseModel):
+    """CSV 匹配统计。"""
+
+    label: str
+    row_count: int
+    in_pool: bool
+
+
+class DictionaryTestRequest(BaseModel):
+    """测试事件与 CSV 数据池匹配。"""
+
+    event_name: str
+    csv_labels: Optional[List[str]] = Field(
+        default=None,
+        description="可选：草稿 CSV label 列表，不传则使用已保存字典",
+    )
+
+
+class DictionaryTestResponse(BaseModel):
+    """事件匹配测试结果。"""
+
+    event_name: str
+    event_column: Optional[str] = None
+    csv_labels_tested: List[str]
+    saved_csv_labels: List[str]
+    label_stats: List[DictionaryLabelStat]
+    total_matched_rows: int
+    pool_total_rows: int
+    distinct_csv_events: int
+    sample_rows: List[dict]
+    suggested_csv_labels: List[str]
 
 
 class AnalysisTypesResponse(BaseModel):

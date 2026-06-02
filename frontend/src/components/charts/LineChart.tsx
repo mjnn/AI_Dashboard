@@ -1,4 +1,5 @@
 import ReactECharts from "echarts-for-react";
+import { useChartTheme } from "../../context/ChartThemeContext";
 import type { ChartConfig } from "../../types";
 import { ChartContainer } from "./ChartContainer";
 import {
@@ -15,12 +16,13 @@ interface LineChartProps {
 }
 
 export default function LineChart({ config, withArea = true, hideTitle = false }: LineChartProps) {
-  const seriesMeta = parseSeries(config);
+  const { colors } = useChartTheme();
+  const seriesMeta = parseSeries(config, colors);
   const xData = getXAxisData(config);
 
   const option = {
     ...baseChartOption,
-    color: seriesMeta.map((item) => item.color),
+    color: colors,
     xAxis: {
       type: "category" as const,
       data: xData,
@@ -46,7 +48,7 @@ export default function LineChart({ config, withArea = true, hideTitle = false }
         ? {
             areaStyle: {
               color: item.color,
-              opacity: 0.1,
+              opacity: 0.12,
             },
           }
         : {}),
@@ -55,7 +57,11 @@ export default function LineChart({ config, withArea = true, hideTitle = false }
 
   return (
     <ChartContainer title={config.title} hideTitle={hideTitle}>
-      <ReactECharts option={option} style={{ height: 360, width: "100%" }} />
+      <ReactECharts
+        option={option}
+        notMerge
+        style={{ height: 360, width: "100%" }}
+      />
     </ChartContainer>
   );
 }

@@ -1,6 +1,7 @@
+import { useChartTheme } from "../../context/ChartThemeContext";
 import type { ChartConfig } from "../../types";
 import { ChartContainer } from "./ChartContainer";
-import { formatAxisLabel, parseSeries } from "./chartUtils";
+import { colorAt, parseSeries } from "./chartUtils";
 
 interface DataTableProps {
   config: ChartConfig;
@@ -8,7 +9,8 @@ interface DataTableProps {
 }
 
 export default function DataTable({ config, hideTitle = false }: DataTableProps) {
-  const seriesMeta = parseSeries(config);
+  const { colors } = useChartTheme();
+  const seriesMeta = parseSeries(config, colors);
   const columns = [
     { key: config.x_axis_key, label: config.x_axis_key },
     ...seriesMeta.map((item) => ({ key: item.key, label: item.name })),
@@ -17,42 +19,27 @@ export default function DataTable({ config, hideTitle = false }: DataTableProps)
   return (
     <ChartContainer title={config.title} hideTitle={hideTitle}>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
+        <table className="min-w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-200 text-left text-gray-500">
-              {columns.map((column) => (
-                <th key={column.key} className="px-4 py-3 font-medium">
-                  {column.label}
+            <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+              {columns.map((col) => (
+                <th key={col.key} className="px-3 py-2 font-medium">
+                  {col.label}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {config.data.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={columns.length}
-                  className="px-4 py-8 text-center text-sm text-gray-400"
-                >
-                  暂无数据
-                </td>
+            {config.data.map((row, rowIndex) => (
+              <tr key={rowIndex} className="border-b border-slate-50">
+                <td className="px-3 py-2 text-slate-700">{String(row[config.x_axis_key] ?? "")}</td>
+                {seriesMeta.map((item, colIndex) => (
+                  <td key={item.key} className="px-3 py-2 font-medium" style={{ color: colorAt(colors, colIndex) }}>
+                    {String(row[item.key] ?? "")}
+                  </td>
+                ))}
               </tr>
-            ) : (
-              config.data.map((row, rowIndex) => (
-                <tr
-                  key={`${rowIndex}-${String(row[config.x_axis_key])}`}
-                  className={rowIndex % 2 === 0 ? "bg-white" : "bg-gray-50"}
-                >
-                  {columns.map((column) => (
-                    <td key={column.key} className="px-4 py-3 text-gray-700">
-                      {column.key === config.x_axis_key
-                        ? formatAxisLabel(row[column.key])
-                        : String(row[column.key] ?? "")}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
+            ))}
           </tbody>
         </table>
       </div>

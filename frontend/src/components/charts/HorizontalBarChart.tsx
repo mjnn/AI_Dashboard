@@ -1,10 +1,13 @@
 import ReactECharts from "echarts-for-react";
+import { useChartTheme } from "../../context/ChartThemeContext";
 import type { ChartConfig } from "../../types";
 import { ChartContainer } from "./ChartContainer";
 import {
   baseChartOption,
+  buildCategoricalBarData,
   getSeriesData,
   getXAxisData,
+  isCategoricalChart,
   parseSeries,
 } from "./chartUtils";
 
@@ -13,13 +16,18 @@ interface HorizontalBarChartProps {
   hideTitle?: boolean;
 }
 
-export default function HorizontalBarChart({ config, hideTitle = false }: HorizontalBarChartProps) {
-  const seriesMeta = parseSeries(config);
+export default function HorizontalBarChart({
+  config,
+  hideTitle = false,
+}: HorizontalBarChartProps) {
+  const { colors } = useChartTheme();
+  const seriesMeta = parseSeries(config, colors);
   const yData = getXAxisData(config);
+  const categorical = isCategoricalChart(config) && seriesMeta.length === 1;
 
   const option = {
     ...baseChartOption,
-    color: seriesMeta.map((item) => item.color),
+    color: colors,
     xAxis: {
       type: "value" as const,
       splitLine: { lineStyle: { color: "#F3F4F6" } },
@@ -35,17 +43,20 @@ export default function HorizontalBarChart({ config, hideTitle = false }: Horizo
       name: item.name,
       type: "bar" as const,
       barMaxWidth: 28,
-      data: getSeriesData(config, item.key),
-      itemStyle: {
-        color: item.color,
-        borderRadius: [0, 4, 4, 0],
-      },
+      data: buildCategoricalBarData(
+        getSeriesData(config, item.key),
+        colors,
+        categorical
+      ),
+      itemStyle: categorical
+        ? { borderRadius: [0, 4, 4, 0] }
+        : { color: item.color, borderRadius: [0, 4, 4, 0] },
     })),
   };
 
   return (
     <ChartContainer title={config.title} hideTitle={hideTitle}>
-      <ReactECharts option={option} style={{ height: 360, width: "100%" }} />
+      <ReactECharts option={option} notMerge style={{ height: 360, width: "100%" }} />
     </ChartContainer>
   );
 }

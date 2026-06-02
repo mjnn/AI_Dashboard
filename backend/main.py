@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -25,6 +25,14 @@ from schemas.analysis import (
     AnalysisResponse,
     AnalysisTypesResponse,
     AnalyzeRequest,
+    CsvFilesResponse,
+    CsvUploadResponse,
+    DictionaryEventDetail,
+    DictionaryEventUpdate,
+    DictionaryEventUpdateResponse,
+    DictionaryTestRequest,
+    DictionaryTestResponse,
+    DictionaryTreeResponse,
     EventsListResponse,
     RecommendationsResponse,
 )
@@ -51,7 +59,21 @@ from services.llm_planner import (
     build_events_whitelist,
     generate_plan,
 )
-from services.recommendation_service import generate_recommendations
+from services.recommendation_service import generate_recommendations, clear_recommendations_cache
+from services.csv_storage import (
+    build_csv_files_response,
+    delete_csv_file,
+    save_csv_upload,
+)
+from services.dict_storage import (
+    build_dictionary_tree,
+    get_event_raw,
+    load_raw_dictionary,
+    reload_events_index,
+    save_raw_dictionary,
+    update_event_raw,
+)
+from services.dict_tester import test_event_against_pool
 from services.metadata_resolver import MetadataResolverError, resolve
 
 logger = logging.getLogger(__name__)
@@ -129,6 +151,106 @@ def list_events():
     modules = events_index.get("modules", [])
     total_events = len(events_index.get("event_names", []))
     return EventsListResponse(modules=modules, total_events=total_events)
+
+
+@app.get("/api/csv-files", response_model=CsvFilesResponse)
+def get_csv_files():
+    try:
+        return build_csv_files_response()
+    except ConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/csv-files/upload", response_model=CsvUploadResponse)
+async def upload_csv_file(file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(status_code=422, detail="未选择文件")
+    content = await file.read()
+    try:
+        return save_csv_upload(content, file.filename)
+    except ConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/csv-files/{filename}", response_model=CsvFilesResponse)
+def remove_csv_file(filename: str):
+    try:
+        return delete_csv_file(filename)
+    except ConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _reload_dictionary_index() -> None:
+    global events_index
+    events_index = reload_events_index(EVENTS_DICT_PATH)
+    clear_recommendations_cache()
+    logger.info("Reloaded dictionary index: %d events", len(events_index.get("event_names", [])))
+
+
+@app.get("/api/dictionary", response_model=DictionaryTreeResponse)
+def get_dictionary_tree():
+    raw = load_raw_dictionary()
+    return build_dictionary_tree(raw)
+
+
+@app.get("/api/dictionary/events/{event_name}", response_model=DictionaryEventDetail)
+def get_dictionary_event(event_name: str):
+    raw = load_raw_dictionary()
+    event = get_event_raw(raw, event_name)
+    if event is None:
+        raise HTTPException(status_code=404, detail=f"事件不存在: {event_name}")
+    module_name = ""
+    for module in raw.get("功能列表", []):
+        for item in module.get("事件列表", []):
+            if item.get("事件") == event_name:
+                module_name = module.get("功能", "")
+                break
+        if module_name:
+            break
+    return DictionaryEventDetail(module=module_name, event=event)
+
+
+@app.put(
+    "/api/dictionary/events/{event_name}",
+    response_model=DictionaryEventUpdateResponse,
+)
+def update_dictionary_event(event_name: str, body: DictionaryEventUpdate):
+    raw = load_raw_dictionary()
+    if get_event_raw(raw, event_name) is None:
+        raise HTTPException(status_code=404, detail=f"事件不存在: {event_name}")
+
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=422, detail="未提供可更新字段")
+
+    try:
+        updated = update_event_raw(raw, event_name, updates)
+        save_raw_dictionary(raw)
+        _reload_dictionary_index()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return DictionaryEventUpdateResponse(
+        event_name=event_name,
+        message="字典已保存并重新加载",
+        event=updated,
+        total_events=len(events_index.get("event_names", [])),
+    )
+
+
+@app.post("/api/dictionary/test-event", response_model=DictionaryTestResponse)
+def test_dictionary_event(body: DictionaryTestRequest):
+    if body.event_name not in events_index.get("events", {}):
+        raise HTTPException(status_code=404, detail=f"事件不存在: {body.event_name}")
+    try:
+        result = test_event_against_pool(
+            body.event_name,
+            events_index,
+            csv_labels=body.csv_labels,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return DictionaryTestResponse(**result)
 
 
 @app.get("/api/recommendations", response_model=RecommendationsResponse)

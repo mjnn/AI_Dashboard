@@ -16,8 +16,11 @@ HOST_PORT="${HOST_PORT:-8011}"
 echo "==> Build frontend (base ${NGINX_PREFIX}/)"
 (
   cd "${ROOT}/frontend"
+  # Git Bash 会把 /tools/... 转成 C:/Program Files/Git/tools/...，必须禁用
+  export MSYS_NO_PATHCONV=1
+  export MSYS2_ARG_CONV_EXCL='*'
   export VITE_BASE="${NGINX_PREFIX}/"
-  export VITE_API_BASE="${NGINX_PREFIX}/api"
+  export VITE_API_BASE="${NGINX_PREFIX}"
   npm run build
 )
 

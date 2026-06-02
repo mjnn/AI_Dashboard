@@ -55,9 +55,14 @@ function formatDataSummary(summary: DataSummary | null): string {
 interface InputPanelProps {
   onSubmit: (query: string, mode: AnalysisModePreference) => void;
   disabled?: boolean;
+  dataPoolVersion?: number;
 }
 
-export default function InputPanel({ onSubmit, disabled = false }: InputPanelProps) {
+export default function InputPanel({
+  onSubmit,
+  disabled = false,
+  dataPoolVersion = 0,
+}: InputPanelProps) {
   const [query, setQuery] = useState("");
   const [analysisMode, setAnalysisMode] = useState<AnalysisModePreference>("auto");
   const [showRecommendations, setShowRecommendations] = useState(false);
@@ -77,6 +82,13 @@ export default function InputPanel({ onSubmit, disabled = false }: InputPanelPro
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    setRecommendations([]);
+    setDataSummary(null);
+    setRecSource(null);
+    setRecError(null);
+  }, [dataPoolVersion]);
 
   const loadRecommendations = async () => {
     if (recLoading) {

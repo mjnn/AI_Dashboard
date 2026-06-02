@@ -1,7 +1,9 @@
 import ReactECharts from "echarts-for-react";
+import { useChartTheme } from "../../context/ChartThemeContext";
 import type { ChartConfig } from "../../types";
 import { ChartContainer } from "./ChartContainer";
 import {
+  baseChartOption,
   getSeriesData,
   getXAxisData,
   parseSeries,
@@ -13,31 +15,29 @@ interface DualAxisChartProps {
 }
 
 export default function DualAxisChart({ config, hideTitle = false }: DualAxisChartProps) {
-  const seriesMeta = parseSeries(config);
+  const { colors } = useChartTheme();
+  const seriesMeta = parseSeries(config, colors);
   const xData = getXAxisData(config);
+
   const left = seriesMeta[0];
   const right = seriesMeta[1];
-  const hasDual = Boolean(left && right && right.key !== left.key);
 
   const yAxis = [
     {
       type: "value" as const,
       name: left?.name,
       position: "left" as const,
-      axisLine: { show: true, lineStyle: { color: left?.color ?? "#007AFF" } },
+      axisLine: { show: true, lineStyle: { color: left?.color ?? colors[0] } },
       axisLabel: { color: "#6B7280" },
       splitLine: { lineStyle: { color: "#F3F4F6" } },
     },
-    ...(hasDual
+    ...(right
       ? [
           {
             type: "value" as const,
-            name: right?.name,
+            name: right.name,
             position: "right" as const,
-            axisLine: {
-              show: true,
-              lineStyle: { color: right?.color ?? "#FF9500" },
-            },
+            axisLine: { show: true, lineStyle: { color: right.color } },
             axisLabel: { color: "#6B7280" },
             splitLine: { show: false },
           },
@@ -57,7 +57,7 @@ export default function DualAxisChart({ config, hideTitle = false }: DualAxisCha
       itemStyle: { color: left.color },
     });
   }
-  if (hasDual && right) {
+  if (right) {
     series.push({
       name: right.name,
       type: "line" as const,
@@ -70,10 +70,8 @@ export default function DualAxisChart({ config, hideTitle = false }: DualAxisCha
   }
 
   const option = {
-    toolbox: { show: false },
-    tooltip: { trigger: "axis" as const },
-    legend: { show: true, bottom: 0 },
-    grid: { left: 56, right: hasDual ? 56 : 24, top: 24, bottom: 48, containLabel: true },
+    ...baseChartOption,
+    color: colors,
     xAxis: {
       type: "category" as const,
       data: xData,
@@ -87,7 +85,7 @@ export default function DualAxisChart({ config, hideTitle = false }: DualAxisCha
 
   return (
     <ChartContainer title={config.title} hideTitle={hideTitle}>
-      <ReactECharts option={option} style={{ height: 360, width: "100%" }} />
+      <ReactECharts option={option} notMerge style={{ height: 360, width: "100%" }} />
     </ChartContainer>
   );
 }

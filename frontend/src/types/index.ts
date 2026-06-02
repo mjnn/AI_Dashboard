@@ -319,3 +319,97 @@ export interface CsvFilesResponse {
   files: CsvFileInfo[];
   total: number;
 }
+
+/** CSV 上传响应 */
+export interface CsvUploadResponse {
+  filename: string;
+  size_bytes: number;
+  message: string;
+  pool: CsvFilesResponse;
+}
+
+/** 字典树事件摘要 */
+export interface DictionaryEventSummary {
+  name: string;
+  data_id: string;
+  condition: string;
+}
+
+/** 字典模块节点 */
+export interface DictionaryModuleNode {
+  name: string;
+  events: DictionaryEventSummary[];
+}
+
+/** 字典树响应 */
+export interface DictionaryTreeResponse {
+  source: string;
+  description: string;
+  modules: DictionaryModuleNode[];
+  total_events: number;
+}
+
+/** 事件属性 */
+export interface EventAttributeDesc {
+  code?: number;
+  label?: string;
+}
+
+export interface EventAttribute {
+  事件的属性: string;
+  属性中文说明?: string;
+  属性值的描述?: string | EventAttributeDesc[] | null;
+}
+
+/** 事件详情 */
+export interface DictionaryEventDetail {
+  module: string;
+  event: Record<string, unknown> & {
+    事件?: string;
+    事件触发条件?: string;
+    事件Data_ID?: string;
+    属性列表?: EventAttribute[];
+  };
+}
+
+/** 事件更新请求 */
+export interface DictionaryEventUpdate {
+  事件触发条件?: string;
+  事件Data_ID?: string;
+  属性列表?: EventAttribute[];
+}
+
+/** 事件更新响应 */
+export interface DictionaryEventUpdateResponse {
+  event_name: string;
+  message: string;
+  event: DictionaryEventDetail["event"];
+  total_events: number;
+}
+
+/** label 匹配统计 */
+export interface DictionaryLabelStat {
+  label: string;
+  row_count: number;
+  in_pool: boolean;
+}
+
+/** 字典测试请求 */
+export interface DictionaryTestRequest {
+  event_name: string;
+  csv_labels?: string[];
+}
+
+/** 字典测试响应 */
+export interface DictionaryTestResponse {
+  event_name: string;
+  event_column?: string | null;
+  csv_labels_tested: string[];
+  saved_csv_labels: string[];
+  label_stats: DictionaryLabelStat[];
+  total_matched_rows: number;
+  pool_total_rows: number;
+  distinct_csv_events: number;
+  sample_rows: Record<string, unknown>[];
+  suggested_csv_labels: string[];
+}

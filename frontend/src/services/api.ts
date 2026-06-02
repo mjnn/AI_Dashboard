@@ -1,6 +1,13 @@
 import type {
   AnalysisModePreference,
   AnalysisResponse,
+  CsvFilesResponse,
+  CsvUploadResponse,
+  DictionaryEventDetail,
+  DictionaryEventUpdate,
+  DictionaryEventUpdateResponse,
+  DictionaryTestResponse,
+  DictionaryTreeResponse,
   EventsListResponse,
   RecommendationsResponse,
 } from "../types";
@@ -15,7 +22,18 @@ export class ApiError extends Error {
   }
 }
 
-const BASE_URL = import.meta.env.VITE_API_BASE ?? "";
+const RAW_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
+
+/** 拼接 API 根路径；避免 VITE_API_BASE 含 /api 时与 /api/xxx 路径重复 */
+function apiUrl(path: string): string {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  let base = RAW_BASE;
+  if (base.endsWith("/api") && normalized.startsWith("/api/")) {
+    base = base.slice(0, -4);
+  }
+  return `${base}${normalized}`;
+}
+
 const REQUEST_TIMEOUT_MS = 120_000;
 
 async function parseErrorBody(response: Response): Promise<string> {
@@ -48,7 +66,7 @@ async function request<T>(
   const signal = options?.signal ?? controller.signal;
 
   try {
-    const response = await fetch(`${BASE_URL}${path}`, {
+    const response = await fetch(apiUrl(path), {
       ...options,
       signal,
       headers: {
@@ -99,4 +117,80 @@ export const api = {
 
   getRecommendations: (signal?: AbortSignal) =>
     request<RecommendationsResponse>("/api/recommendations", { signal }),
+
+  listCsvFiles: (signal?: AbortSignal) =>
+    request<CsvFilesResponse>("/api/csv-files", { signal }),
+
+  uploadCsv: async (file: File, signal?: AbortSignal): Promise<CsvUploadResponse> => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const abortSignal = signal ?? controller.signal;
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const response = await fetch(apiUrl("/api/csv-files/upload"), {
+        method: "POST",
+        body: form,
+        signal: abortSignal,
+      });
+      if (!response.ok) {
+        const message = await parseErrorBody(response);
+        throw new ApiError(message, response.status);
+      }
+      return (await response.json()) as CsvUploadResponse;
+    } catch (err) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiError("上传超时，请稍后重试", 408);
+      }
+      throw new ApiError(err instanceof Error ? err.message : "上传失败", 0);
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  },
+
+  deleteCsv: (filename: string, signal?: AbortSignal) =>
+    request<CsvFilesResponse>(`/api/csv-files/${encodeURIComponent(filename)}`, {
+      method: "DELETE",
+      signal,
+    }),
+
+  getDictionaryTree: (signal?: AbortSignal) =>
+    request<DictionaryTreeResponse>("/api/dictionary", { signal }),
+
+  getDictionaryEvent: (eventName: string, signal?: AbortSignal) =>
+    request<DictionaryEventDetail>(
+      `/api/dictionary/events/${encodeURIComponent(eventName)}`,
+      { signal }
+    ),
+
+  updateDictionaryEvent: (
+    eventName: string,
+    body: DictionaryEventUpdate,
+    signal?: AbortSignal
+  ) =>
+    request<DictionaryEventUpdateResponse>(
+      `/api/dictionary/events/${encodeURIComponent(eventName)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+        signal,
+      }
+    ),
+
+  testDictionaryEvent: (
+    eventName: string,
+    csvLabels?: string[],
+    signal?: AbortSignal
+  ) =>
+    request<DictionaryTestResponse>("/api/dictionary/test-event", {
+      method: "POST",
+      body: JSON.stringify({
+        event_name: eventName,
+        csv_labels: csvLabels,
+      }),
+      signal,
+    }),
 };

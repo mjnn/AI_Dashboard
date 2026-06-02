@@ -224,9 +224,57 @@ class TestApiNoLlm(unittest.TestCase):
         r = self.client.post("/api/analyze", json={"query": ""})
         self.assertIn(r.status_code, (422, 400))
 
-    def test_csv_files_removed(self):
+    def test_list_csv_files(self):
         r = self.client.get("/api/csv-files")
-        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertGreaterEqual(data["total"], 1)
+        self.assertTrue(any(f["filename"].endswith(".csv") for f in data["files"]))
+
+    def test_upload_csv(self):
+        content = b"vin_code,date,event\nV001,2026-01-01,test_event\n"
+        r = self.client.post(
+            "/api/csv-files/upload",
+            files={"file": ("test_upload_panel.csv", content, "text/csv")},
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["filename"], "test_upload_panel.csv")
+        try:
+            from config import resolve_csv_data_dir
+
+            (resolve_csv_data_dir() / "test_upload_panel.csv").unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    def test_upload_rejects_non_csv(self):
+        r = self.client.post(
+            "/api/csv-files/upload",
+            files={"file": ("bad.txt", b"hello", "text/plain")},
+        )
+        self.assertEqual(r.status_code, 422)
+
+    def test_dictionary_tree(self):
+        r = self.client.get("/api/dictionary")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertGreater(data["total_events"], 1000)
+        self.assertTrue(any(m.get("events") for m in data["modules"]))
+
+    def test_dictionary_event_detail(self):
+        r = self.client.get("/api/dictionary/events/Carlog_进入")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data["event"]["事件"], "Carlog_进入")
+
+    def test_dictionary_test_event(self):
+        r = self.client.post(
+            "/api/dictionary/test-event",
+            json={"event_name": "Carlog_进入", "csv_labels": ["carlog_entry"]},
+        )
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertGreater(data["total_matched_rows"], 0)
+        self.assertIn("carlog_entry", data["csv_labels_tested"])
 
 
 @unittest.skipUnless(get_deepseek_api_key(), "需要 DEEPSEEK_API_KEY")

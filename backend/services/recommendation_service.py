@@ -191,6 +191,11 @@ def generate_recommendations() -> RecommendationsResponse:
     return result
 
 
+def clear_recommendations_cache() -> None:
+    """数据池变更后清空推荐缓存。"""
+    _cache.clear()
+
+
 def _fallback_recommendations(profile: dict[str, Any]) -> RecommendationsResponse:
     """无 API Key 时基于规则生成兜底推荐。"""
     event_name = "数据事件"

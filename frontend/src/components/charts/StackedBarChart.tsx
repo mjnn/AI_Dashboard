@@ -1,4 +1,5 @@
 import ReactECharts from "echarts-for-react";
+import { useChartTheme } from "../../context/ChartThemeContext";
 import type { ChartConfig } from "../../types";
 import { ChartContainer } from "./ChartContainer";
 import {
@@ -15,13 +16,14 @@ interface StackedBarChartProps {
 }
 
 export default function StackedBarChart({ config, hideTitle = false }: StackedBarChartProps) {
-  const pivot = buildPivotSeries(config);
-  const seriesMeta = parseSeries(config);
+  const { colors } = useChartTheme();
+  const seriesMeta = parseSeries(config, colors);
+  const pivot = buildPivotSeries(config, colors);
 
   const option = pivot
     ? {
         ...baseChartOption,
-        color: pivot.series.map((item) => item.color),
+        color: colors,
         xAxis: {
           type: "category" as const,
           data: pivot.xCategories,
@@ -37,14 +39,14 @@ export default function StackedBarChart({ config, hideTitle = false }: StackedBa
           name: item.name,
           type: "bar" as const,
           stack: "total",
-          barMaxWidth: 40,
+          emphasis: { focus: "series" as const },
           data: item.data,
           itemStyle: { color: item.color, borderRadius: [2, 2, 0, 0] },
         })),
       }
     : {
         ...baseChartOption,
-        color: seriesMeta.map((item) => item.color),
+        color: colors,
         xAxis: {
           type: "category" as const,
           data: getXAxisData(config),
@@ -60,7 +62,6 @@ export default function StackedBarChart({ config, hideTitle = false }: StackedBa
           name: item.name,
           type: "bar" as const,
           stack: "total",
-          barMaxWidth: 40,
           data: getSeriesData(config, item.key),
           itemStyle: { color: item.color, borderRadius: [2, 2, 0, 0] },
         })),
@@ -68,7 +69,7 @@ export default function StackedBarChart({ config, hideTitle = false }: StackedBa
 
   return (
     <ChartContainer title={config.title} hideTitle={hideTitle}>
-      <ReactECharts option={option} style={{ height: 360, width: "100%" }} />
+      <ReactECharts option={option} notMerge style={{ height: 360, width: "100%" }} />
     </ChartContainer>
   );
 }

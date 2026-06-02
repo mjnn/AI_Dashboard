@@ -1,7 +1,8 @@
 import ReactECharts from "echarts-for-react";
+import { useChartTheme } from "../../context/ChartThemeContext";
 import type { ChartConfig } from "../../types";
 import { ChartContainer } from "./ChartContainer";
-import { CHART_COLORS, formatAxisLabel, getXAxisData } from "./chartUtils";
+import { colorAt, formatAxisLabel, getXAxisData } from "./chartUtils";
 
 interface FunnelChartProps {
   config: ChartConfig;
@@ -9,6 +10,7 @@ interface FunnelChartProps {
 }
 
 export default function FunnelChart({ config, hideTitle = false }: FunnelChartProps) {
+  const { colors } = useChartTheme();
   const labels = getXAxisData(config);
   const valueKey =
     config.value_key ??
@@ -19,10 +21,11 @@ export default function FunnelChart({ config, hideTitle = false }: FunnelChartPr
   const data = config.data.map((row, index) => ({
     name: formatAxisLabel(row[config.x_axis_key]) || labels[index] || `Step ${index + 1}`,
     value: Number(row[valueKey] ?? 0),
+    itemStyle: { color: colorAt(colors, index) },
   }));
 
   const option = {
-    color: CHART_COLORS,
+    color: colors,
     tooltip: { trigger: "item" as const, formatter: "{b}: {c}" },
     series: [
       {
@@ -44,7 +47,7 @@ export default function FunnelChart({ config, hideTitle = false }: FunnelChartPr
 
   return (
     <ChartContainer title={config.title} hideTitle={hideTitle}>
-      <ReactECharts option={option} style={{ height: 360, width: "100%" }} />
+      <ReactECharts option={option} notMerge style={{ height: 360, width: "100%" }} />
     </ChartContainer>
   );
 }

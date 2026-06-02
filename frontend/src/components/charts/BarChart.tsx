@@ -1,10 +1,13 @@
 import ReactECharts from "echarts-for-react";
+import { useChartTheme } from "../../context/ChartThemeContext";
 import type { ChartConfig } from "../../types";
 import { ChartContainer } from "./ChartContainer";
 import {
   baseChartOption,
+  buildCategoricalBarData,
   getSeriesData,
   getXAxisData,
+  isCategoricalChart,
   parseSeries,
 } from "./chartUtils";
 
@@ -14,12 +17,14 @@ interface BarChartProps {
 }
 
 export default function BarChart({ config, hideTitle = false }: BarChartProps) {
-  const seriesMeta = parseSeries(config);
+  const { colors } = useChartTheme();
+  const seriesMeta = parseSeries(config, colors);
   const xData = getXAxisData(config);
+  const categorical = isCategoricalChart(config) && seriesMeta.length === 1;
 
   const option = {
     ...baseChartOption,
-    color: seriesMeta.map((item) => item.color),
+    color: colors,
     xAxis: {
       type: "category" as const,
       data: xData,
@@ -35,17 +40,20 @@ export default function BarChart({ config, hideTitle = false }: BarChartProps) {
       name: item.name,
       type: "bar" as const,
       barMaxWidth: 40,
-      data: getSeriesData(config, item.key),
-      itemStyle: {
-        color: item.color,
-        borderRadius: [4, 4, 0, 0],
-      },
+      data: buildCategoricalBarData(
+        getSeriesData(config, item.key),
+        colors,
+        categorical
+      ),
+      itemStyle: categorical
+        ? { borderRadius: [4, 4, 0, 0] }
+        : { color: item.color, borderRadius: [4, 4, 0, 0] },
     })),
   };
 
   return (
     <ChartContainer title={config.title} hideTitle={hideTitle}>
-      <ReactECharts option={option} style={{ height: 360, width: "100%" }} />
+      <ReactECharts option={option} notMerge style={{ height: 360, width: "100%" }} />
     </ChartContainer>
   );
 }

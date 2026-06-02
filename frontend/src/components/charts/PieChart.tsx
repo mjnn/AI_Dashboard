@@ -1,4 +1,5 @@
 import ReactECharts from "echarts-for-react";
+import { useChartTheme } from "../../context/ChartThemeContext";
 import type { ChartConfig } from "../../types";
 import { ChartContainer } from "./ChartContainer";
 import { parseSeries } from "./chartUtils";
@@ -9,13 +10,15 @@ interface PieChartProps {
 }
 
 export default function PieChart({ config, hideTitle = false }: PieChartProps) {
-  const seriesMeta = parseSeries(config);
+  const { colors } = useChartTheme();
+  const seriesMeta = parseSeries(config, colors);
   const metric = seriesMeta[0];
   const valueKey = metric?.key ?? config.y_axis_keys[0];
 
-  const pieData = config.data.map((row) => ({
+  const pieData = config.data.map((row, index) => ({
     name: String(row[config.x_axis_key] ?? ""),
     value: Number(row[valueKey] ?? 0),
+    itemStyle: { color: colors[index % colors.length] },
   }));
 
   const option = {
@@ -29,7 +32,7 @@ export default function PieChart({ config, hideTitle = false }: PieChartProps) {
       bottom: 0,
       type: "scroll" as const,
     },
-    color: seriesMeta.map((item) => item.color),
+    color: colors,
     series: [
       {
         name: metric?.name ?? config.title,
@@ -60,7 +63,7 @@ export default function PieChart({ config, hideTitle = false }: PieChartProps) {
 
   return (
     <ChartContainer title={config.title} hideTitle={hideTitle}>
-      <ReactECharts option={option} style={{ height: 360, width: "100%" }} />
+      <ReactECharts option={option} notMerge style={{ height: 360, width: "100%" }} />
     </ChartContainer>
   );
 }

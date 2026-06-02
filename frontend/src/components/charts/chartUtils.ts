@@ -1,16 +1,5 @@
 import type { ChartConfig } from "../../types";
 
-export const CHART_COLORS = [
-  "#007AFF",
-  "#FF9500",
-  "#34C759",
-  "#FF3B30",
-  "#5856D6",
-  "#AF52DE",
-  "#FF2D55",
-  "#00C7BE",
-];
-
 export interface ParsedSeries {
   key: string;
   name: string;
@@ -18,12 +7,16 @@ export interface ParsedSeries {
   yAxisIndex: number;
 }
 
-export function parseSeries(config: ChartConfig): ParsedSeries[] {
+export function colorAt(colors: string[], index: number): string {
+  return colors[index % colors.length] ?? colors[0] ?? "#6366F1";
+}
+
+export function parseSeries(config: ChartConfig, colors: string[]): ParsedSeries[] {
   if (config.series.length > 0) {
     return config.series.map((item, index) => ({
       key: String(item.key ?? config.y_axis_keys[index] ?? ""),
       name: String(item.name ?? item.key ?? config.y_axis_keys[index] ?? ""),
-      color: String(item.color ?? CHART_COLORS[index % CHART_COLORS.length]),
+      color: String(item.color ?? colorAt(colors, index)),
       yAxisIndex: Number(item.yAxisIndex ?? 0),
     }));
   }
@@ -31,8 +24,31 @@ export function parseSeries(config: ChartConfig): ParsedSeries[] {
   return config.y_axis_keys.map((key, index) => ({
     key,
     name: key,
-    color: CHART_COLORS[index % CHART_COLORS.length],
+    color: colorAt(colors, index),
     yAxisIndex: 0,
+  }));
+}
+
+/** 单系列多分类维度时，按类别逐条着色 */
+export function isCategoricalChart(config: ChartConfig): boolean {
+  const seriesCount =
+    config.series.length > 0 ? config.series.length : config.y_axis_keys.length;
+  return seriesCount <= 1 && config.data.length > 1;
+}
+
+export type BarDataPoint = number | { value: number; itemStyle: { color: string } };
+
+export function buildCategoricalBarData(
+  values: number[],
+  colors: string[],
+  categorical: boolean
+): BarDataPoint[] {
+  if (!categorical) {
+    return values;
+  }
+  return values.map((value, index) => ({
+    value,
+    itemStyle: { color: colorAt(colors, index) },
   }));
 }
 
@@ -76,7 +92,7 @@ export function buildHeatmapMatrix(config: ChartConfig) {
   return { xLabels, yLabels, matrix, valueKey };
 }
 
-export function buildPivotSeries(config: ChartConfig) {
+export function buildPivotSeries(config: ChartConfig, colors: string[]) {
   const xKey = config.x_axis_key;
   const subKey = config.sub_axis_key;
   const valueKey = config.value_key ?? config.y_axis_keys[0] ?? "pv";
@@ -101,10 +117,8 @@ export function buildPivotSeries(config: ChartConfig) {
   const series = subCategories.map((name, index) => ({
     name,
     key: name,
-    color: CHART_COLORS[index % CHART_COLORS.length],
-    data: xCategories.map(
-      (x) => lookup.get(`${x}::${name}`) ?? 0
-    ),
+    color: colorAt(colors, index),
+    data: xCategories.map((x) => lookup.get(`${x}::${name}`) ?? 0),
   }));
 
   return { xCategories, series };

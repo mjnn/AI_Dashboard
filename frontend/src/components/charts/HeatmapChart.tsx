@@ -1,4 +1,6 @@
 import ReactECharts from "echarts-for-react";
+import { useChartTheme } from "../../context/ChartThemeContext";
+import { heatmapGradient } from "../../theme/chartPalettes";
 import type { ChartConfig } from "../../types";
 import { ChartContainer } from "./ChartContainer";
 import { buildHeatmapMatrix } from "./chartUtils";
@@ -9,7 +11,9 @@ interface HeatmapChartProps {
 }
 
 export default function HeatmapChart({ config, hideTitle = false }: HeatmapChartProps) {
+  const { colors } = useChartTheme();
   const { xLabels, yLabels, matrix } = buildHeatmapMatrix(config);
+  const gradient = heatmapGradient(colors[0] ?? "#6366F1");
 
   const option = {
     tooltip: { position: "top" as const },
@@ -33,7 +37,7 @@ export default function HeatmapChart({ config, hideTitle = false }: HeatmapChart
       orient: "horizontal" as const,
       left: "center",
       bottom: 0,
-      inRange: { color: ["#E8F4FF", "#007AFF", "#003D80"] },
+      inRange: { color: gradient },
     },
     series: [
       {
@@ -50,7 +54,7 @@ export default function HeatmapChart({ config, hideTitle = false }: HeatmapChart
 
   return (
     <ChartContainer title={config.title} hideTitle={hideTitle}>
-      <ReactECharts option={option} style={{ height: 400, width: "100%" }} />
+      <ReactECharts option={option} notMerge style={{ height: 400, width: "100%" }} />
     </ChartContainer>
   );
 }
