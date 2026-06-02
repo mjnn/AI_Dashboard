@@ -13,6 +13,7 @@ from services.csv_processor import (
     load_data_pool,
 )
 from services.exploratory_analyzer import detect_feasible_analysis_types
+from services.time_parse import parse_time_values
 
 _TIME_COL_PATTERN = re.compile(r"date|time|timestamp|日期|时间", re.I)
 _EVENT_COL_PATTERN = re.compile(r"event|事件", re.I)
@@ -44,7 +45,7 @@ def build_data_profile(df: pd.DataFrame | None = None) -> dict[str, Any]:
     }
 
     if time_col:
-        parsed = pd.to_datetime(df[time_col], errors="coerce")
+        parsed = parse_time_values(df[time_col], time_col)
         valid = parsed.notna()
         if valid.any():
             profile["date_range"] = {

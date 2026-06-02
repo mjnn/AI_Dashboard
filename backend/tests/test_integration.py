@@ -238,6 +238,40 @@ class TestProcessCsv(unittest.TestCase):
         self.assertEqual(labels[:2], ["使用1次", "使用2次"])
 
 
+class TestTimeParse(unittest.TestCase):
+    def test_time_column_utc_to_cst(self):
+        from services.time_parse import is_utc_time_column, parse_time_values
+
+        self.assertTrue(is_utc_time_column("time"))
+        self.assertTrue(is_utc_time_column("Time"))
+        self.assertFalse(is_utc_time_column("date"))
+        self.assertFalse(is_utc_time_column("datetime"))
+
+        series = pd.Series(["2026-01-01 16:00:00", "2026-06-01T00:00:00Z"])
+        converted = parse_time_values(series, "time")
+        self.assertEqual(converted.iloc[0].day, 2)
+        self.assertEqual(converted.iloc[0].hour, 0)
+        self.assertEqual(converted.iloc[1].hour, 8)
+
+    def test_date_column_unchanged_offset(self):
+        from services.time_parse import parse_time_values
+
+        series = pd.Series(["2026-01-01 00:00:00"])
+        parsed = parse_time_values(series, "date")
+        self.assertEqual(parsed.iloc[0].day, 1)
+        self.assertEqual(parsed.iloc[0].hour, 0)
+
+
+class TestCsvUploadLimit(unittest.TestCase):
+    def test_rejects_over_200mb(self):
+        from services.csv_storage import MAX_CSV_UPLOAD_BYTES, save_csv_upload
+
+        oversized = b"x" * (MAX_CSV_UPLOAD_BYTES + 1)
+        with self.assertRaises(Exception) as ctx:
+            save_csv_upload(oversized, "too_large.csv")
+        self.assertIn("200", str(ctx.exception))
+
+
 class TestApiNoLlm(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

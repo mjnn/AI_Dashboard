@@ -35,6 +35,8 @@ function apiUrl(path: string): string {
 }
 
 const REQUEST_TIMEOUT_MS = 120_000;
+const UPLOAD_TIMEOUT_MS = 600_000;
+export const MAX_CSV_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 async function parseErrorBody(response: Response): Promise<string> {
   const text = await response.text();
@@ -122,8 +124,11 @@ export const api = {
     request<CsvFilesResponse>("/api/csv-files", { signal }),
 
   uploadCsv: async (file: File, signal?: AbortSignal): Promise<CsvUploadResponse> => {
+    if (file.size > MAX_CSV_UPLOAD_BYTES) {
+      throw new ApiError("文件过大，单文件上限 200 MB", 422);
+    }
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timeoutId = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
     const abortSignal = signal ?? controller.signal;
     const form = new FormData();
     form.append("file", file);

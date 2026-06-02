@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 from schemas.analysis import AnalysisPlan, ExecutionSummary, MetricDef
+from services.time_parse import parse_time_values
 from services.field_resolver import resolve_column_name
 from services.analysis_registry import (
     ACTIVE_DAYS_BUCKET_DIMENSION,
@@ -130,7 +131,7 @@ def _find_event_column(columns: List[str]) -> Optional[str]:
 
 
 def _apply_time_filter(df: pd.DataFrame, time_col: str, plan: AnalysisPlan) -> pd.DataFrame:
-    series = pd.to_datetime(df[time_col], errors="coerce")
+    series = parse_time_values(df[time_col], time_col)
     valid = series.notna()
     if not valid.any():
         return df.iloc[0:0].copy()
@@ -157,7 +158,7 @@ def _apply_time_filter(df: pd.DataFrame, time_col: str, plan: AnalysisPlan) -> p
 def _normalize_dimension(df: pd.DataFrame, dim_col: str, dimension: str) -> pd.DataFrame:
     result = df.copy()
     if dimension == "date" or _TIME_PATTERNS.search(dimension):
-        result[dimension] = pd.to_datetime(result[dim_col], errors="coerce").dt.date
+        result[dimension] = parse_time_values(result[dim_col], dim_col).dt.date
     else:
         result[dimension] = result[dim_col]
     return result
@@ -233,7 +234,7 @@ def _parsed_time_series(filtered: pd.DataFrame, time_col: Optional[str]) -> Opti
     if "_parsed_time" in filtered.columns:
         return filtered["_parsed_time"]
     if time_col and time_col in filtered.columns:
-        return pd.to_datetime(filtered[time_col], errors="coerce")
+        return parse_time_values(filtered[time_col], time_col)
     return None
 
 
@@ -474,7 +475,7 @@ def _ensure_parsed_time(df: pd.DataFrame, time_col: Optional[str]) -> pd.DataFra
     if "_parsed_time" in df.columns or not time_col:
         return df
     result = df.copy()
-    result["_parsed_time"] = pd.to_datetime(result[time_col], errors="coerce")
+    result["_parsed_time"] = parse_time_values(result[time_col], time_col)
     return result
 
 

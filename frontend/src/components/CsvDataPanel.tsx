@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError } from "../services/api";
+import { api, ApiError, MAX_CSV_UPLOAD_BYTES } from "../services/api";
 import type { CsvFileInfo } from "../types";
 
 function formatBytes(bytes: number): string {
@@ -55,6 +55,10 @@ export default function CsvDataPanel({ disabled = false, onPoolChange }: CsvData
     }
     if (!file.name.toLowerCase().endsWith(".csv")) {
       setError("请选择 .csv 文件");
+      return;
+    }
+    if (file.size > MAX_CSV_UPLOAD_BYTES) {
+      setError("文件过大，单文件上限 200 MB");
       return;
     }
 
@@ -160,7 +164,7 @@ export default function CsvDataPanel({ disabled = false, onPoolChange }: CsvData
       )}
 
       <p className="mt-2 text-[11px] text-slate-400">
-        上传后自动合并进数据池，分析时将使用目录内全部 CSV
+        上传后自动合并进数据池，分析时将使用目录内全部 CSV · 单文件最大 200 MB
       </p>
     </div>
   );
